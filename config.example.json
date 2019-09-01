@@ -1,0 +1,27 @@
+{
+    "discord":{
+        "token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "prefix":"!",
+        "manage_channel":"505178093397475357",
+        "nowplaying":["!subinfo","!sync","!subhelp"],
+        "background_refresh_rate":240,
+        "admins":["252869311545212928"]
+    },
+
+    "dgg":{
+        "profile":{
+            "key":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "endpoint":"https://www.destiny.gg/api/info/profile"
+        },
+        "flair":{
+            "endpoint":"https://cdn.destiny.gg/flairs/flairs.json",
+            "translate":["flair12","flair8","flair3","flair1","flair13","flair9"]
+       },
+        "links":{
+            "auth":"https://www.destiny.gg/profile/authentication",
+            "profile":"https://www.destiny.gg/profile"
+        }
+    },
+
+    "db":"dggiscord.sqlite"
+}
