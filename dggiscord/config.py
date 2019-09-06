@@ -6,7 +6,7 @@ import sys
 logger = logging.getLogger(__name__)
 logger.info("Loading {}...".format(__name__))
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "cfg/config.json"
 cfg = {} # type: dict
 
 #verifies that the config exists, and is valid JSON
