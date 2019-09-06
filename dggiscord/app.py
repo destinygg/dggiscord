@@ -2,7 +2,6 @@ import log
 import config
 import client
 import database
-import error
 
 import translator
 import sync
