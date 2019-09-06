@@ -2,7 +2,6 @@
     "discord":{
         "token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "prefix":"!",
-        "manage_channel":"505178093397475357",
         "nowplaying":["!subinfo","!sync","!subhelp"],
         "background_refresh_rate":240,
         "admins":["252869311545212928"]
@@ -17,10 +16,12 @@
             "endpoint":"https://cdn.destiny.gg/flairs/flairs.json",
             "translate":["flair12","flair8","flair3","flair1","flair13","flair9"]
        },
-        "links":{
+       "links":{
             "auth":"https://www.destiny.gg/profile/authentication",
-            "profile":"https://www.destiny.gg/profile"
-        }
+            "profile":"https://www.destiny.gg/profile",
+            "subscribe":"https://www.destiny.gg/subscribe",
+            "twitchint":"https://support.discordapp.com/hc/en-us/articles/212112068-Twitch-Integration-FAQ"
+    }
     },
 
     "db":"dggiscord.sqlite"

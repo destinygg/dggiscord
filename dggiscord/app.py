@@ -6,6 +6,8 @@ import database
 import translator
 import sync
 import background
+import memberstate
+import serverstate
 
 import commands
 

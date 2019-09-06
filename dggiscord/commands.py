@@ -1,7 +1,9 @@
 from config import cfg
 from log import logging
 from sync import update_member, get_profile
+from common import get_profile_api
 import client
+import time
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -32,17 +34,6 @@ def user_is_privledge(ctx):
     return False
 
 @client.bot.command()
-async def sync(ctx):
-
-    # get the users profile, see if their account is tied
-    profile = await get_profile(ctx.message.author)
-    if profile is None:
-        await ctx.send("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
-    else:
-        await update_member(ctx.message.author)
-        await ctx.send("{0.message.author.mention} your profile is connected! Visit <{1[dgg][links][profile]}> to manage your subscriptions.".format(ctx, cfg))
-
-@client.bot.command()
 async def syncother(ctx):
     if user_is_privledge(ctx) is False:
         return
@@ -57,4 +48,33 @@ async def syncother(ctx):
             await ctx.send("{0.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(member, cfg))
         else:
             await update_member(member)
-            await ctx.send("{0.mention} your profile is connected! Visit <{1[dgg][links][profile]}> to manage your subscriptions.".format(member, cfg))
+            await ctx.send("{0.mention} your profile is connected! Visit <{1[dgg][links][profile]}> or use !sync to manage your subscriptions.".format(member, cfg))
+
+@client.bot.command(aliases=['sub','dgg','postcringelosesub'])
+async def sync(ctx):
+    await ctx.trigger_typing()
+
+    profile = await get_profile(ctx.message.author)
+    # no profile
+    if profile is None:
+        await ctx.send("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
+        return
+
+    # no sub
+    if profile['subscription'] is None:
+        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you do not have an (active) subscription :( Start one today at <{2[dgg][links][subscribe]}>".format(ctx, profile, cfg))
+        return
+
+    # twitch sub
+    if profile['subscription']['source'] == "twitch.tv":
+        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you only have a Twitch sub. To use your Twitch sub learn how at <{2[dgg][links][twitchint]}>".format(ctx, profile, cfg))
+        return
+
+    # dgg sub
+    if profile['subscription']['source'] == "destiny.gg":
+        await update_member(ctx.message.author)
+
+        expires = time.strptime(profile['subscription']['end'], "%Y-%m-%dT%H:%M:%S+0000")
+        expires_formatted = time.strftime("%c", expires)
+
+        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, and your tier {1[subscription][tier]} subscription expires at {2} (UTC)".format(ctx, profile, expires_formatted))
