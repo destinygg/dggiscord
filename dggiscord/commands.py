@@ -55,6 +55,11 @@ async def sync(ctx):
     await ctx.trigger_typing()
 
     profile = await get_profile(ctx.message.author)
+    # DM / No Guild
+    if ctx.message.guild is None:
+        await ctx.send("{0.message.author.mention} sync is only supported in within a server, sorry :(".format(ctx))
+        return
+
     # no profile
     if profile is None:
         await ctx.send("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
