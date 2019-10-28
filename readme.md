@@ -41,3 +41,14 @@ cp config.example.json ../cfg/config.json
 
 python3 ./dggiscord/app.py
 ```
+
+## Updatin' It
+
+Docker:
+```
+docker stop dggiscord
+docker rm dggiscord
+cd /home/bots/dggiscord/; git pull origin master
+docker build -t dggiscord .
+docker run -it --user 1004:1004 -v /home/bots/dggiscord/cfg:/dggiscord/cfg --restart=unless-stopped --name dggiscord dggiscord
+```

@@ -97,7 +97,10 @@ async def refresh_flair_to_role(guild, flair):
         if role.name != flair['label'] or str(role.color) != flair['color'].lower():
             logger.warn("refresh_flair_to_role() flair {0[2]} has been edited, reverting changes to reflect API truth".format(row))
 
-            color_hex = int(flair['color'].replace("#","0x"), 16)
+            if flair['color'] == "":
+                color_hex = int("0x000000", 16)
+            else:
+                color_hex = int(flair['color'].replace("#","0x"), 16)
             color = client.discord.Color(color_hex)
 
             udrole = await role.edit(name=flair['label'], color=color, hoist=True)
