@@ -58,7 +58,11 @@ def get_flair_if_exists(guildid, flair):
 # make new roles - https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Guild.create_role
 async def create_new_flair_to_role(guild, flair):
     # build the discord.Color object
-    color_hex = int(flair['color'].replace("#","0x"), 16)
+    if flair['color'] == "":
+        color_hex = int("0x000000", 16)
+    else:
+        color_hex = int(flair['color'].replace("#","0x"), 16)
+
     color = client.discord.Color(color_hex)
 
     # make the role
