@@ -1,5 +1,7 @@
 FROM python:3.8-alpine
 
+RUN apk add gcc python3-dev musl-dev
+
 WORKDIR /dggiscord
 
 COPY requirements.txt ./
