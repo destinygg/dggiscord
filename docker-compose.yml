@@ -1,0 +1,10 @@
+version: "3.4"
+services:
+  dggiscord:
+    container_name: dggiscord
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./cfg:/dggiscord/cfg

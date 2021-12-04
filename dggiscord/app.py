@@ -9,6 +9,6 @@ import background
 import memberstate
 import serverstate
 
-import commands
+import commands.sync
 
 client.bot.run(config.cfg['discord']['token'])

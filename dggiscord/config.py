@@ -2,17 +2,21 @@ import json
 import logging
 import os
 import sys
+import argparse
 
 logger = logging.getLogger(__name__)
 logger.info("Loading {}...".format(__name__))
 
-CONFIG_FILE = "cfg/config.json"
-cfg = {} # type: dict
+parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
+parser.add_argument("--config", type=str, default="cfg/config.json")
+args = parser.parse_args()
 
-#verifies that the config exists, and is valid JSON
+cfg = {}  # type: dict
+
+# verifies that the config exists, and is valid JSON
 def verify_cfg(cfgfile):
     if os.path.isfile(cfgfile) is False:
-        logger.critical("Unable to find config.json!")
+        logger.critical(f"Unable to find {cfgfile}. Working Dir: {os.getcwd()}")
         return False
 
     with open(cfgfile, "r") as cfgReadFile:
@@ -25,7 +29,8 @@ def verify_cfg(cfgfile):
 
     return False
 
-#starts the bot from the config file:
+
+# starts the bot from the config file:
 def start_from_cfg(cfgfile):
     global cfg
     if verify_cfg(cfgfile) is False:
@@ -36,4 +41,5 @@ def start_from_cfg(cfgfile):
         cfg = json.load(cfgReadFile)
         return True
 
-start_from_cfg(CONFIG_FILE)
+
+start_from_cfg(args.config)

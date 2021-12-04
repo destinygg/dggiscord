@@ -1,1 +1,1 @@
-discord.py
+disnake==2.2.2

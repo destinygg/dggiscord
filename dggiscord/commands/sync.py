@@ -15,7 +15,7 @@ def user_is_privledge(ctx):
         return True
 
     # allow server owner
-    if ctx.message.author.id == ctx.message.guild.owner.id:
+    if ctx.message.author.id == ctx.message.guild.owner_id:
         return True
 
     # allow server admins
@@ -39,16 +39,16 @@ async def syncother(ctx):
         return
 
     if ctx.message.mentions is None:
-        await ctx.send("{0.message.author.mention} mention the users you wish to sync. Multiple mentions/users supported.".format(ctx, cfg))
+        await ctx.reply("{0.message.author.mention} mention the users you wish to sync. Multiple mentions/users supported.".format(ctx, cfg))
         return
 
     for member in ctx.message.mentions:
         profile = await get_profile(member)
         if profile is None:
-            await ctx.send("{0.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(member, cfg))
+            await ctx.reply("{0.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(member, cfg))
         else:
             await update_member(member)
-            await ctx.send("{0.mention} your profile is connected! Visit <{1[dgg][links][profile]}> or use !sync to manage your subscriptions.".format(member, cfg))
+            await ctx.reply("{0.mention} your profile is connected! Visit <{1[dgg][links][profile]}> or use !sync to manage your subscriptions.".format(member, cfg))
 
 @client.bot.command(aliases=['sub','dgg','postcringelosesub'])
 async def sync(ctx):
@@ -57,22 +57,22 @@ async def sync(ctx):
     profile = await get_profile(ctx.message.author)
     # DM / No Guild
     if ctx.message.guild is None:
-        await ctx.send("{0.message.author.mention} sync is only supported in within a server, sorry :(".format(ctx))
+        await ctx.reply("{0.message.author.mention} sync is only supported in within a server, sorry :(".format(ctx))
         return
 
     # no profile
     if profile is None:
-        await ctx.send("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
+        await ctx.reply("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
         return
 
     # no sub
     if profile['subscription'] is None:
-        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you do not have an (active) subscription :( Start one today at <{2[dgg][links][subscribe]}>".format(ctx, profile, cfg))
+        await ctx.reply("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you do not have an (active) subscription :( Start one today at <{2[dgg][links][subscribe]}>".format(ctx, profile, cfg))
         return
 
     # twitch sub
     if profile['subscription']['source'] == "twitch.tv":
-        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you only have a Twitch sub. To use your Twitch sub learn how at <{2[dgg][links][twitchint]}>".format(ctx, profile, cfg))
+        await ctx.reply("{0.message.author.mention} your profile is connected to `{1[nick]}`, but you only have a Twitch sub. To use your Twitch sub learn how at <{2[dgg][links][twitchint]}>".format(ctx, profile, cfg))
         return
 
     # dgg sub
@@ -82,4 +82,4 @@ async def sync(ctx):
         expires = time.strptime(profile['subscription']['end'], "%Y-%m-%dT%H:%M:%S+0000")
         expires_formatted = time.strftime("%c", expires)
 
-        await ctx.send("{0.message.author.mention} your profile is connected to `{1[nick]}`, and your tier {1[subscription][tier]} subscription expires at {2} (UTC)".format(ctx, profile, expires_formatted))
+        await ctx.reply("{0.message.author.mention} your profile is connected to `{1[nick]}`, and your tier {1[subscription][tier]} subscription expires at {2} (UTC)".format(ctx, profile, expires_formatted))
