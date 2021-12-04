@@ -1,10 +1,12 @@
-version: "3.4"
+version: '3.4'
 services:
-  dggiscord:
-    container_name: dggiscord
+  bot-discord:
     build:
       context: .
       dockerfile: Dockerfile
-    restart: unless-stopped
+    container_name: bot-discord
+    user: 1004:1004
     volumes:
       - ./cfg:/dggiscord/cfg
+    restart: unless-stopped
+    network_mode: host

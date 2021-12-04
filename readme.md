@@ -2,10 +2,10 @@
 
 ## User Commands
 
-| Command | Description |
-| ----------- | ----------- |
-| !sync | Verify your subscription is connected with provider |
-| !syncother @Mention | (Mod) Sync the mentioned user with provider |
+| Command             | Description                                         |
+| ------------------- | --------------------------------------------------- |
+| !sync               | Verify your subscription is connected with provider |
+| !syncother @Mention | (Mod) Sync the mentioned user with provider         |
 
 ## Creating the OAuth Scope
 
@@ -18,37 +18,25 @@ Join URL Example: `https://discordapp.com/oauth2/authorize?client_id=<BOTID>&sco
 ## Runnin' It
 
 Docker:
+
 ```
 mkdir cfg
-git clone https://github.com/destinygg/dggiscord.git src
-cd src
-docker build -t dggiscord .
-cp config.example.json ../cfg/config.json
-
+cp config.example.json ./cfg/config.json
 <edit config.json>
-
-chown -R 1004:1004 /home/bots/dggiscord/
-docker run -it --user 1004:1004 -v /home/bots/dggiscord/cfg:/dggiscord/cfg --restart=always --name dggiscord dggiscord
+docker-compose up
 ```
 
 Console:
+
 ```
 git clone https://github.com/destinygg/dggiscord.git .
 mkdir cfg
-cp config.example.json ../cfg/config.json
-
+cp config.example.json ./cfg/config.json
 <edit config.json>
 
-python3 ./dggiscord/app.py
+python3 ./dggiscord/app.py [--config <alternative location>]
 ```
 
 ## Updatin' It
 
-Docker:
-```
-docker stop dggiscord
-docker rm dggiscord
-cd /home/bots/dggiscord/; git pull origin master
-docker build -t dggiscord .
-docker run -it --user 1004:1004 -v /home/bots/dggiscord/cfg:/dggiscord/cfg --restart=unless-stopped --name dggiscord dggiscord
-```
+docker-compose up -d --build
