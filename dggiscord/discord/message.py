@@ -1,6 +1,6 @@
-from config import cfg
-from log import logging
-import client
+from helpers.config import cfg
+from helpers.log import logging
+import discord.client as client
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")

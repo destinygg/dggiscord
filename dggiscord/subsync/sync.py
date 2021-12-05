@@ -1,8 +1,8 @@
-from config import cfg
-from log import logging
-from common import get_profile_api
-from database import con, cur
-import client
+from helpers.config import cfg
+from helpers.log import logging
+from helpers.http import get_dgg_profile
+from helpers.database import con, cur
+import discord.client as client
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -56,7 +56,7 @@ def role_map(server):
 
 # get the user's account as it stands on DGG, requires: Discord.Member
 async def get_profile(member):
-    profile = await get_profile_api(member.id)
+    profile = await get_dgg_profile(member.id)
     return profile
 
 # remove a role, requies: role(ID), Discord.Member

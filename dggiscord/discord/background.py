@@ -1,8 +1,8 @@
-from config import cfg
-from log import logging
-from sync import update_member, flair_map, role_map
-from translator import flairs_to_roles
-import client
+from helpers.config import cfg
+from helpers.log import logging
+from subsync.sync import update_member, flair_map, role_map
+from subsync.translator import flairs_to_roles
+import discord.client as client
 import time
 
 logger = logging.getLogger(__name__)

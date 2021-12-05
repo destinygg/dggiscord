@@ -1,11 +1,9 @@
-from config import cfg
+from helpers.config import cfg
 import logging
 import disnake as discord
 import asyncio
 from disnake.ext import commands, tasks
 from disnake import embeds
-from translator import flairs_to_roles
-import sync
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")

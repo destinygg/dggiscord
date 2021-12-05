@@ -1,9 +1,8 @@
-from config import cfg
-from log import logging
-from sync import update_member
-from translator import flairs_to_roles
-from sync import update_member, flair_map, role_map
-import client
+from helpers.config import cfg
+from helpers.log import logging
+from subsync.translator import flairs_to_roles
+from subsync.sync import update_member, flair_map, role_map
+import discord.client as client
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")

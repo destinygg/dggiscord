@@ -1,7 +1,6 @@
-from config import cfg
-from log import logging
-from sync import update_member
-import client
+from helpers.log import logging
+from subsync.sync import update_member
+import discord.client as client
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")

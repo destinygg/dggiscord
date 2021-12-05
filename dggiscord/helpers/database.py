@@ -1,7 +1,6 @@
-from config import cfg
-from log import logging
+from helpers.config import cfg
+from helpers.log import logging
 import sqlite3
-import datetime
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -19,3 +18,10 @@ cur.execute("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='
 if cur.fetchone()[0] == 0:
     logger.warn("table 'flairmap' does not exist in database, creating schema...")
     cur.execute("CREATE TABLE 'flairmap' ( `discord_server` INTEGER, `discord_role` INTEGER, `dgg_flair` TEXT, `last_updated` TEXT, `last_refresh` TEXT, PRIMARY KEY(`discord_role`) )")
+
+# hubchannel configs
+cur.execute("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='hubchannels'")
+if cur.fetchone()[0] == 0:
+    logger.warn("table 'hubchannels' does not exist in database, creating schema...")
+    cur.execute("CREATE TABLE 'hubchannels' ( `discord_server` INTEGER PRIMARY KEY, `hubchannel` INTEGER )")
+    cur.execute("CREATE UNIQUE INDEX idx_hubchannels ON hubchannels (discord_server)")

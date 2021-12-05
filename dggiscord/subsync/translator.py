@@ -1,9 +1,9 @@
-from config import cfg
-from log import logging
-from common import get_basic_json
-from database import con, cur
+from helpers.config import cfg
+from helpers.log import logging
+from helpers.http import get_json
+from helpers.database import con, cur
 from datetime import datetime, timezone
-import client
+import discord.client as client
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -29,7 +29,7 @@ logger.info("loading...")
 
 # get the json from dgg, and map the flair roles to a name and server ID, requires: Discord.Guild object
 async def flairs_to_roles(guild):
-    flair_json = await get_basic_json(cfg['dgg']['flair']['endpoint'])
+    flair_json = await get_json(cfg['dgg']['flair']['endpoint'])
 
     if flair_json is None:
         logger.error("flairs_to_roles() unable to create the map after failing to get {} via API call.".format(cfg['dgg']['flair']['endpoint']))

@@ -1,8 +1,7 @@
-from config import cfg
-from log import logging
-from sync import update_member, get_profile
-from common import get_profile_api
-import client
+from helpers.config import cfg
+from helpers.log import logging
+from subsync.sync import update_member, get_profile
+import discord.client as client
 import time
 
 logger = logging.getLogger(__name__)
