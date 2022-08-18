@@ -1,6 +1,6 @@
 from helpers.config import cfg
 from helpers.log import logging
-from helpers.http import get_dgg_profile
+from helpers.http import get_dgg_profile, get_all_dgg_profiles
 from helpers.database import con, cur
 import discord.client as client
 
@@ -113,13 +113,56 @@ async def add_user_roles(profile, member, rolemap):
                 await add_role(rolemap[feature], member)
 
 # the 1 line abstraction to call to update a user throughout the bot, requires: Discord.Member, optional: flair_map() and role_map()
-async def update_member(member, fmap=None, rmap=None):
+async def update_member(member, fmap=None, rmap=None, dgg_index=None):
     if fmap is None:
         fmap = flair_map(member.guild)
     if rmap is None:
         rmap = role_map(member.guild)
+    
+    # poll DGG for the user if we don't have the subscriber index
+    if dgg_index is None:
+        logger.info(f'update_member() looking up {member.id} directly against API')
+        api = await get_profile(member)
+    else:
+    # return api result if in index, if not signal None and move on
+        try:
+            api = dgg_index[member.id]
+            logger.info(f'update_member() {member.id} found in subscriber index')
+        except KeyError:
+            api = None 
 
-    api = await get_profile(member)
     if api is not None:
         await add_user_roles(api, member, rmap)
     await remove_user_roles(api, member, fmap)
+
+# get all accounts with discord from dgg, index the data and return a k/v store by Discord ID
+async def get_all_members_indexed():
+    members = await get_all_dgg_profiles()
+
+    if members['status'] != "success":
+        logger.error(f'get_all_members_indexed() API responded with unparsable result {members}')
+        return
+    else:
+        logger.info(f'get_all_members_indexed() got API result with {len(members["data"])} accounts')
+
+    index = {}
+
+    for member in members['data']:
+        # only index active accounts
+        if member['status'] != "Active":
+            continue
+
+        # skip accounts that are not subs
+        if member['dggSub'] == None:
+            continue
+
+        # cast to an int, because disnake considers User.ID uint64 against Discord recommendation lol!
+        snowflake = int(member['authId'])
+        index[snowflake] = member
+
+        # pack the dict to match /api/info/profile response
+        index[snowflake]['subscription'] = index[snowflake]['dggSub']
+
+    logger.info(f'get_all_members_indexed() Index completed with subscriber {len(index)} accounts')
+
+    return index

@@ -26,7 +26,13 @@ async def get_json(url):
         return None
 
 async def get_dgg_profile(discordid):
-    logger.info(f'get_dgg_profile() attempting async URL {cfg["dgg"]["profile"]["endpoint"]}')
-    url = f'{cfg["dgg"]["profile"]["endpoint"]}?privatekey={cfg["dgg"]["profile"]["key"]}&discordid={discordid}'
+    logger.info(f'get_dgg_profile() attempting async URL {cfg["dgg"]["profile"]["user_endpoint"]}')
+    url = f'{cfg["dgg"]["profile"]["user_endpoint"]}?privatekey={cfg["dgg"]["profile"]["key"]}&discordid={discordid}'
     profile = await get_json(url)
     return profile
+
+async def get_all_dgg_profiles():
+    logger.info(f'get_all_dgg_profiles() attempting async URL {cfg["dgg"]["profile"]["allusers_endpoint"]}')
+    url = f'{cfg["dgg"]["profile"]["allusers_endpoint"]}?privatekey={cfg["dgg"]["profile"]["key"]}&auth=discord'
+    profiles = await get_json(url)
+    return profiles

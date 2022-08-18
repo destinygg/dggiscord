@@ -10,7 +10,8 @@
     "dgg":{
         "profile":{
             "key":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            "endpoint":"https://www.destiny.gg/api/info/profile"
+            "user_endpoint":"https://destiny.gg/api/info/profile",
+            "allusers_endpoint":"https://www.destiny.gg/api/users-with-auth"
         },
         "flair":{
             "endpoint":"https://cdn.destiny.gg/flairs/flairs.json",

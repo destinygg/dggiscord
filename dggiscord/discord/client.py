@@ -8,7 +8,13 @@ from disnake import embeds
 logger = logging.getLogger(__name__)
 logger.info("loading...")
 
-bot = commands.Bot(command_prefix=cfg["discord"]["prefix"])
+intents = discord.Intents.default()
+intents.members = True
+
+bot = commands.Bot(
+    command_prefix=cfg["discord"]["prefix"],
+    intents=intents
+)
 
 
 @bot.event
