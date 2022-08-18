@@ -10,6 +10,7 @@ logger.info("loading...")
 
 intents = discord.Intents.default()
 intents.members = True
+intents.messages = True
 
 bot = commands.Bot(
     command_prefix=cfg["discord"]["prefix"],
