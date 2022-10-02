@@ -15,7 +15,8 @@
         },
         "flair":{
             "endpoint":"https://cdn.destiny.gg/flairs/flairs.json",
-            "translate":["flair12","flair8","flair3","flair1","flair13","flair9"]
+            "translate":["flair12","flair8","flair3","flair1","flair13","flair9"],
+            "resync_properties": "true"
        },
        "links":{
             "auth":"https://www.destiny.gg/profile/authentication",

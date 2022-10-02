@@ -94,20 +94,27 @@ async def refresh_flair_to_role(guild, flair):
         await create_new_flair_to_role(guild, flair)
     else:
         # we need to make sure the name and color are still matching
-        if role.name != flair['label'] or str(role.color) != flair['color'].lower():
-            logger.warn("refresh_flair_to_role() flair {0[2]} has been edited, reverting changes to reflect API truth".format(row))
+        if cfg['dgg']['flair']['resync_properties']:
+            logger.info("refresh_flair_to_role() property refresh enabled, attempting sync")
 
-            if flair['color'] == "":
-                color_hex = int("0x000000", 16)
+            if role.name != flair['label'] or str(role.color) != flair['color'].lower():
+                logger.warn("refresh_flair_to_role() flair {0[2]} has been edited, reverting changes to reflect API truth".format(row))
+
+                if flair['color'] == "":
+                    color_hex = int("0x000000", 16)
+                else:
+                    color_hex = int(flair['color'].replace("#","0x"), 16)
+                color = client.discord.Color(color_hex)
+
+                udrole = await role.edit(name=flair['label'], color=color, hoist=True)
+
+                # update the database
+                cur.execute("UPDATE flairmap SET last_updated=? WHERE discord_role=?", (now, row[1]))
             else:
-                color_hex = int(flair['color'].replace("#","0x"), 16)
-            color = client.discord.Color(color_hex)
+                logger.info("refresh_flair_to_role() flair {0[2]} with ID {0[1]} is ok, no changes required".format(row))
+        else:
+            logger.info("refresh_flair_to_role() property refresh disabled, skipping sync")
 
-            udrole = await role.edit(name=flair['label'], color=color, hoist=True)
-
-            # update the database
-            cur.execute("UPDATE flairmap SET last_updated=? WHERE discord_role=?", (now, row[1]))
-
-        logger.info("refresh_flair_to_role() flair {0[2]} with ID {0[1]} is ok, no changes required".format(row))
+        logger.info("refresh_flair_to_role() refresh completed")
         cur.execute("UPDATE flairmap SET last_refresh=? WHERE discord_role=?", (now, row[1]))
         con.commit()
