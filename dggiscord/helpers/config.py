@@ -33,7 +33,7 @@ def load_config(cfgfile):
         sys.exit()
 
     with open(cfgfile, "r") as cfgReadFile:
-        cfg = json.load(cfgReadFile)
+        cfg.update(json.load(cfgReadFile))
         return True
 
 
