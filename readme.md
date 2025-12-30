@@ -7,13 +7,22 @@
 | !sync               | Verify your subscription is connected with provider |
 | !syncother @Mention | (Mod) Sync the mentioned user with provider         |
 
-## Creating the OAuth Scope
+## Creating a Bot User
 
-Generate a Bot user on Discord at https://discordapp.com/developers/applications/
+1. Create a new application in the [Discord developer portal](https://discordapp.com/developers/applications/)
 
-Bot user must have the `MANAGE_ROLES` Permission or `268435456` as a permission integer
+2. Enable required intents
 
-Join URL Example: `https://discordapp.com/oauth2/authorize?client_id=<BOTID>&scope=bot&permissions=268435456`
+   1. Open the app's _Bot_ settings
+   2. Under _Privileged Gateway Intents_, enable _Server Members Intent_ and _Message Content Intent_
+
+3. Invite the bot to your server
+
+   1. Navigate to the app's _OAuth2_ settings
+   2. Under _Scopes_, toggle the _bot_ checkbox
+   3. Under _Bot Permissions_, toggle the _Manage Roles_ checkbox
+   4. Open the _Generated URL_ in your web browser
+   5. Follow the on-screen instructions to complete the process
 
 ## Runnin' It
 
