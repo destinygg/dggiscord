@@ -1,11 +1,20 @@
 from helpers.config import cfg
 from helpers.log import logging
+from helpers.database import cur
 from subsync.sync import update_member, get_profile
 import discord.client as client
 import time
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
+
+def is_sync_enabled_for_guild(guild_id):
+    """Check if sync is enabled for a guild. Defaults to False (disabled)."""
+    cur.execute("SELECT enabled FROM syncenabled WHERE discord_server=?", (guild_id,))
+    row = cur.fetchone()
+    if row is None:
+        return False
+    return bool(row[0])
 
 # https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Permissions
 def user_is_privledge(ctx):
@@ -37,6 +46,11 @@ async def syncother(ctx):
     if user_is_privledge(ctx) is False:
         return
 
+    # Check if sync is disabled for this server
+    if not is_sync_enabled_for_guild(ctx.message.guild.id):
+        await ctx.reply("Sync feature is currently disabled for this server.")
+        return
+
     if ctx.message.mentions is None:
         await ctx.reply("{0.message.author.mention} mention the users you wish to sync. Multiple mentions/users supported.".format(ctx, cfg))
         return
@@ -57,6 +71,11 @@ async def sync(ctx):
     # DM / No Guild
     if ctx.message.guild is None:
         await ctx.reply("{0.message.author.mention} sync is only supported in within a server, sorry :(".format(ctx))
+        return
+
+    # Check if sync is disabled for this server
+    if not is_sync_enabled_for_guild(ctx.message.guild.id):
+        await ctx.reply("{0.message.author.mention} sync feature is currently disabled for this server.".format(ctx))
         return
 
     # no profile
