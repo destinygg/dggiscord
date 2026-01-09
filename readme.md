@@ -49,3 +49,7 @@ python3 ./dggiscord/app.py [--config <alternative location>]
 ## Updatin' It
 
 docker-compose up -d --build
+
+## Database Migrations
+
+Database migrations run automatically when the application starts. The system will create a `migrations` table to track applied migrations, and execute any that are pending. You can manage migrations manually using `./dggiscord/migrate.py`.
