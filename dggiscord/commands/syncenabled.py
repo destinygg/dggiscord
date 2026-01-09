@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 logger.info("loading...")
 
 @client.bot.command()
-async def syncenabled(ctx, arg):
+async def syncenabled(ctx, arg="get"):
     # only let server admins determine this
     permissions = ctx.message.channel.permissions_for(ctx.message.author)
     if not permissions.administrator:
