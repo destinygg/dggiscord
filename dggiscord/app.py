@@ -7,7 +7,7 @@ import helpers.config as config
 parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
 parser.add_argument("--config", type=str, default="cfg/config.json")
 args = parser.parse_args()
-config.start_from_cfg(args.config)
+config.load_config(args.config)
 
 import helpers.database
 import discord.client as client

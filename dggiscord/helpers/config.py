@@ -25,11 +25,11 @@ def verify_cfg(cfgfile):
     return False
 
 
-# starts the bot from the config file:
-def start_from_cfg(cfgfile):
+# loads and validates the config file
+def load_config(cfgfile):
     global cfg
     if verify_cfg(cfgfile) is False:
-        logger.critical("Unable to start bot. verify_cfg() returned False.")
+        logger.critical("Unable to load config. verify_cfg() returned False.")
         sys.exit()
 
     with open(cfgfile, "r") as cfgReadFile:
