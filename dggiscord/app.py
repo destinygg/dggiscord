@@ -1,8 +1,16 @@
+import argparse
+
 import helpers.log
 import helpers.config as config
+
+# Parse args and load config before importing modules that depend on it
+parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
+parser.add_argument("--config", type=str, default="cfg/config.json")
+args = parser.parse_args()
+config.load_config(args.config)
+
 import helpers.database
 import discord.client as client
-
 
 import subsync.translator
 import subsync.sync
