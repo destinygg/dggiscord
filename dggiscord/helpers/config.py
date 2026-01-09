@@ -2,14 +2,9 @@ import json
 import logging
 import os
 import sys
-import argparse
 
 logger = logging.getLogger(__name__)
 logger.info("Loading {}...".format(__name__))
-
-parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
-parser.add_argument("--config", type=str, default="cfg/config.json")
-args = parser.parse_args()
 
 cfg = {}  # type: dict
 
@@ -42,4 +37,3 @@ def start_from_cfg(cfgfile):
         return True
 
 
-start_from_cfg(args.config)
