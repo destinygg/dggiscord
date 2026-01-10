@@ -21,5 +21,6 @@ import discord.serverstate
 import commands.sync
 import commands.livestatuscfg
 import commands.syncenabled
+import commands.verify
 
 client.bot.run(config.cfg['discord']['token'])
