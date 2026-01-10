@@ -3,6 +3,7 @@ from helpers.log import logging
 from helpers.http import get_dgg_profile, get_all_dgg_profiles
 from helpers.database import con, cur
 import discord.client as client
+import disnake
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -118,7 +119,7 @@ async def update_member(member, fmap=None, rmap=None, dgg_index=None):
         fmap = flair_map(member.guild)
     if rmap is None:
         rmap = role_map(member.guild)
-    
+
     # poll DGG for the user if we don't have the subscriber index
     if dgg_index is None:
         logger.info(f'update_member() looking up {member.id} directly against API')
@@ -129,7 +130,7 @@ async def update_member(member, fmap=None, rmap=None, dgg_index=None):
             api = dgg_index[member.id]
             logger.info(f'update_member() {member.id} found in subscriber index')
         except KeyError:
-            api = None 
+            api = None
 
     if api is not None:
         await add_user_roles(api, member, rmap)
@@ -152,17 +153,70 @@ async def get_all_members_indexed():
         if member['status'] != "Active":
             continue
 
-        # skip accounts that are not subs
-        if member['dggSub'] == None:
-            continue
-
         # cast to an int, because disnake considers User.ID uint64 against Discord recommendation lol!
         snowflake = int(member['authId'])
         index[snowflake] = member
 
-        # pack the dict to match /api/info/profile response
-        index[snowflake]['subscription'] = index[snowflake]['dggSub']
+        # pack the dict to match /api/info/profile response if dggSub exists
+        if member['dggSub'] is not None:
+            index[snowflake]['subscription'] = index[snowflake]['dggSub']
 
-    logger.info(f'get_all_members_indexed() Index completed with subscriber {len(index)} accounts')
+    logger.info(f'get_all_members_indexed() Index completed with {len(index)} accounts')
 
     return index
+
+
+def can_modify_member_nickname(guild, target_member):
+    """Check if the bot can modify the target member's nickname."""
+    bot_member = guild.get_member(client.bot.user.id)
+    if bot_member is None:
+        return False
+
+    # Can't modify the server owner's nickname
+    if target_member.id == guild.owner_id:
+        return False
+
+    # Bot's highest role must be higher than target's highest role
+    if bot_member.top_role <= target_member.top_role:
+        return False
+
+    return True
+
+
+# update member's username to match DGG profile, requires: Discord.Member, optional: dgg_index
+async def update_member_username(member, dgg_index=None):
+    # Get profile from index or API
+    if dgg_index is None:
+        logger.info(f'update_member_username() looking up {member.id} directly against API')
+        api = await get_profile(member)
+    else:
+        try:
+            api = dgg_index[member.id]
+            logger.debug(f'update_member_username() {member.id} found in index')
+        except KeyError:
+            api = None
+
+    if api is None:
+        return
+
+    dgg_nick = api.get('nick') or api.get('username')
+    if dgg_nick is None:
+        return
+
+    # Check if we can modify this member
+    if not can_modify_member_nickname(member.guild, member):
+        logger.debug(f"update_member_username() cannot modify member {member.id} in guild {member.guild.id}")
+        return
+
+    # Skip if nickname already matches
+    if member.nick == dgg_nick:
+        logger.debug(f"update_member_username() {member.id} nickname already matches '{dgg_nick}'")
+        return
+
+    try:
+        await member.edit(nick=dgg_nick)
+        logger.info(f"update_member_username() set nickname for {member.id} to '{dgg_nick}' in guild {member.guild.id}")
+    except disnake.Forbidden:
+        logger.warning(f"update_member_username() forbidden to change nickname for {member.id} in guild {member.guild.id}")
+    except disnake.HTTPException as e:
+        logger.error(f"update_member_username() failed to change nickname for {member.id}: {e}")
