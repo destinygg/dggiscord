@@ -6,6 +6,7 @@
 | ------------------- | --------------------------------------------------- |
 | !sync               | Verify your subscription is connected with provider |
 | !syncother @Mention | (Mod) Sync the mentioned user with provider         |
+| !syncenabled        | (Mod) Get, enable, or disable sync for the server   |
 
 ## Creating a Bot User
 

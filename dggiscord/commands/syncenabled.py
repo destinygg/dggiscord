@@ -1,15 +1,15 @@
 from helpers.log import logging
 from helpers.database import con, cur
 import discord.client as client
+from commands.sync import user_is_privledge
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
 
 @client.bot.command()
 async def syncenabled(ctx, arg="get"):
-    # only let server admins determine this
-    permissions = ctx.message.channel.permissions_for(ctx.message.author)
-    if not permissions.administrator:
+    # only let privileged users determine this
+    if not user_is_privledge(ctx):
         return
 
     if arg == "get":
