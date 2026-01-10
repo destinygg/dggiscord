@@ -2,10 +2,13 @@
 
 ## User Commands
 
-| Command             | Description                                         |
-| ------------------- | --------------------------------------------------- |
-| !sync               | Verify your subscription is connected with provider |
-| !syncother @Mention | (Mod) Sync the mentioned user with provider         |
+| Command                             | Description                                | Permissions           |
+| ----------------------------------- | ------------------------------------------ | --------------------- |
+| !sync                               | Sync your Dgg subscription                 | All Users             |
+| !syncother @Mention                 | Sync the mentioned user's Dgg subscription | Privileged Users Only |
+| !syncenabled {get\|enable\|disable} | Enable/disable sub syncing for the server  | Privileged Users Only |
+
+> Note: A privileged user is the server owner, the bot owner, or a user with one of the following permissions: _Manage Roles_, _Manage Channels_, _Manage Server_, _Administrator_.
 
 ## Creating a Bot User
 
