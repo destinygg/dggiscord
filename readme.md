@@ -23,10 +23,9 @@
 
    1. Navigate to the app's _OAuth2_ settings
    2. Under _Scopes_, toggle the _bot_ checkbox
-   3. Under _Bot Permissions_, toggle the _Manage Roles_ checkbox
-   4. (Optional) Toggle the _Manage Nicknames_ checkbox to enable username syncing
-   5. Open the _Generated URL_ in your web browser
-   6. Follow the on-screen instructions to complete the process
+   3. Under _Bot Permissions_, toggle the _Manage Roles_ and _Manage Nicknames_ checkboxes
+   4. Open the _Generated URL_ in your web browser
+   5. Follow the on-screen instructions to complete the process
 
 ## Runnin' It
 
