@@ -39,13 +39,29 @@ logger.info("loading...")
 """
 
 # build a map of the server flair -> role mappings, requires: Discord.Guild
+# filters out stale mappings where the Discord role no longer exists
 def flair_map(server):
     flairmap = {}
+    stale_roles = []
     cur.execute("SELECT * from flairmap WHERE discord_server=?", (server.id,))
     rows = cur.fetchall()
 
     for row in rows:
-        flairmap.update({row[1]:row[2]})
+        role_id = row[1]
+        flair_name = row[2]
+        # Check if the role still exists in Discord
+        if server.get_role(role_id) is not None:
+            flairmap.update({role_id: flair_name})
+        else:
+            logger.warning(f"flair_map() role ID:{role_id} for flair '{flair_name}' no longer exists in guild {server.id}, excluding from map")
+            stale_roles.append(role_id)
+
+    # Clean up stale database entries
+    if stale_roles:
+        for role_id in stale_roles:
+            cur.execute("DELETE FROM flairmap WHERE discord_role=?", (role_id,))
+        con.commit()
+        logger.info(f"flair_map() cleaned up {len(stale_roles)} stale flair mapping(s) from database")
 
     return flairmap
 
@@ -63,12 +79,20 @@ async def get_profile(member):
 # remove a role, requies: role(ID), Discord.Member
 async def remove_role(role, member):
     role_obj = member.guild.get_role(role)
+    if role_obj is None:
+        logger.warning(f"remove_role() role ID:{role} no longer exists in guild {member.guild.id}, skipping")
+        return False
     await member.remove_roles(role_obj)
+    return True
 
 # add a role, requies: role(ID), Discord.Member
 async def add_role(role, member):
     role_obj = member.guild.get_role(role)
+    if role_obj is None:
+        logger.warning(f"add_role() role ID:{role} no longer exists in guild {member.guild.id}, skipping")
+        return False
     await member.add_roles(role_obj)
+    return True
 
 # add the "Dgg Verified" role to a member if they don't already have it
 async def add_verified_role(member):
