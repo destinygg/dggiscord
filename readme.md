@@ -2,11 +2,11 @@
 
 ## User Commands
 
-| Command                             | Description                                | Permissions           |
-| ----------------------------------- | ------------------------------------------ | --------------------- |
-| !sync                               | Sync your Dgg subscription                 | All Users             |
-| !syncother @Mention                 | Sync the mentioned user's Dgg subscription | Privileged Users Only |
-| !syncenabled {get\|enable\|disable} | Enable/disable sub syncing for the server  | Privileged Users Only |
+| Command                                                          | Description                                             | Permissions           |
+| ---------------------------------------------------------------- | ------------------------------------------------------- | --------------------- |
+| !sync                                                            | Sync your Dgg subscription and/or username              | All Users             |
+| !syncother @Mention                                              | Sync the mentioned user's Dgg subscription and username | Privileged Users Only |
+| !sync-settings [{enable\|disable} {subscription\|username\|all}] | View or change sync settings                            | Privileged Users Only |
 
 > Note: A privileged user is the server owner, the bot owner, or a user with one of the following permissions: _Manage Roles_, _Manage Channels_, _Manage Server_, _Administrator_.
 
@@ -23,7 +23,7 @@
 
    1. Navigate to the app's _OAuth2_ settings
    2. Under _Scopes_, toggle the _bot_ checkbox
-   3. Under _Bot Permissions_, toggle the _Manage Roles_ checkbox
+   3. Under _Bot Permissions_, toggle the _Manage Roles_ and _Manage Nicknames_ checkboxes
    4. Open the _Generated URL_ in your web browser
    5. Follow the on-screen instructions to complete the process
 
