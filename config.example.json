@@ -4,7 +4,7 @@
         "prefix":"!",
         "nowplaying":["!subinfo","!sync","!subhelp"],
         "background_refresh_rate":240,
-        "admins":["252869311545212928"]
+        "admins":[252869311545212928]
     },
 
     "dgg":{
