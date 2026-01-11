@@ -8,7 +8,10 @@ logger.info(f"Loading {__name__}...")
 async def get_json(url):
     logger.info("http.get_json() attempting async URL {0}".format(url))
     try:
-        async with aiohttp.ClientSession() as session:
+        disable_ssl = cfg['dgg']['profile'].get('disable_ssl_verify', False)
+        connector = aiohttp.TCPConnector(ssl=False) if disable_ssl else None
+
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url) as r:
                 logger.info(f"http.get_json() returned HTTP/{r.status}")
                 if r.status == 200:

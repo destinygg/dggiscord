@@ -11,7 +11,8 @@
         "profile":{
             "key":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
             "user_endpoint":"https://destiny.gg/api/info/profile",
-            "allusers_endpoint":"https://www.destiny.gg/api/users-with-auth"
+            "allusers_endpoint":"https://www.destiny.gg/api/users-with-auth",
+            "disable_ssl_verify": false
         },
         "flair":{
             "endpoint":"https://cdn.destiny.gg/flairs/flairs.json",
