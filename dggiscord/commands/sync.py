@@ -1,7 +1,7 @@
 from helpers.config import cfg
 from helpers.log import logging
 from helpers.database import cur
-from subsync.sync import update_member, get_profile
+from subsync.sync import update_member, get_profile, add_verified_role
 import discord.client as client
 import disnake
 import time
@@ -82,6 +82,8 @@ async def sync_username(member, profile, guild):
     try:
         await member.edit(nick=dgg_nick)
         logger.info(f"sync_username() set nickname for {member.id} to '{dgg_nick}' in guild {guild.id}")
+        # Add verified role after successful username sync
+        await add_verified_role(member)
         return True, dgg_nick
     except disnake.Forbidden:
         logger.warning(f"sync_username() forbidden to change nickname for {member.id} in guild {guild.id}")

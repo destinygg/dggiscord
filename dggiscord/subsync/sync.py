@@ -70,6 +70,42 @@ async def add_role(role, member):
     role_obj = member.guild.get_role(role)
     await member.add_roles(role_obj)
 
+# add the "Dgg Verified" role to a member if they don't already have it
+async def add_verified_role(member):
+    """Add the 'Dgg Verified' role to a member. Creates the role if it doesn't exist. Returns True if role was added, False otherwise."""
+    verified_role = disnake.utils.get(member.guild.roles, name="Dgg Verified")
+
+    # Create the role if it doesn't exist
+    if verified_role is None:
+        try:
+            verified_role = await member.guild.create_role(
+                name="Dgg Verified",
+                color=disnake.Color.green(),
+                reason="Auto-created by DGG sync bot for verified users"
+            )
+            logger.info(f"add_verified_role() created 'Dgg Verified' role in guild {member.guild.id}")
+        except disnake.Forbidden:
+            logger.warning(f"add_verified_role() forbidden to create role in guild {member.guild.id}")
+            return False
+        except disnake.HTTPException as e:
+            logger.error(f"add_verified_role() failed to create role in guild {member.guild.id}: {e}")
+            return False
+
+    if already_has_role(verified_role.id, member):
+        logger.debug(f"add_verified_role() member {member.id} already has 'Dgg Verified' role")
+        return True
+
+    try:
+        await add_role(verified_role.id, member)
+        logger.info(f"add_verified_role() added 'Dgg Verified' role to member {member.id} in guild {member.guild.id}")
+        return True
+    except disnake.Forbidden:
+        logger.warning(f"add_verified_role() forbidden to add role to member {member.id} in guild {member.guild.id}")
+        return False
+    except disnake.HTTPException as e:
+        logger.error(f"add_verified_role() failed to add role to member {member.id}: {e}")
+        return False
+
 # return true if the user already has the role, required: role(ID), Discord.Member
 def already_has_role(roleid, member):
     for role in member.roles:
@@ -216,6 +252,7 @@ async def update_member_username(member, dgg_index=None):
     try:
         await member.edit(nick=dgg_nick)
         logger.info(f"update_member_username() set nickname for {member.id} to '{dgg_nick}' in guild {member.guild.id}")
+        await add_verified_role(member)
     except disnake.Forbidden:
         logger.warning(f"update_member_username() forbidden to change nickname for {member.id} in guild {member.guild.id}")
     except disnake.HTTPException as e:
