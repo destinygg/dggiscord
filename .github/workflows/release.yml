@@ -20,6 +20,7 @@ jobs:
 
     permissions:
       contents: write
+      actions: write
 
     steps:
       - name: Checkout
@@ -57,3 +58,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_TAG: ${{ steps.version.outputs.new_tag }}
         run: gh release create "$NEW_TAG" --title "$NEW_TAG" --generate-notes
+
+      # Workflows triggered by GITHUB_TOKEN don't fire downstream `push`
+      # events, so dispatch the ECR build explicitly against the new tag.
+      - name: Trigger ECR build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.version.outputs.new_tag }}
+        run: gh workflow run ecr-dggiscord-prod.yml --ref "$NEW_TAG"
