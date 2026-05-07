@@ -182,7 +182,7 @@ async def update_member(member, fmap=None, rmap=None, dgg_index=None):
     # return api result if in index, if not signal None and move on
         try:
             api = dgg_index[member.id]
-            logger.info(f'update_member() {member.id} found in subscriber index')
+            logger.debug(f'update_member() {member.id} found in subscriber index')
         except KeyError:
             api = None
 
