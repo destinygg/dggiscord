@@ -93,8 +93,19 @@ async def refresh_flair_to_role(guild, flair):
     # what time is it, right now (in UTC)
     now = datetime.now(timezone.utc).isoformat()
 
-    # get the role from the ID the db returned
+    # get the role from the ID the db returned (disnake in-memory cache lookup, no HTTP)
     role = guild.get_role(row[1]) # 1 = discord_role
+    if role is None:
+        # Cache miss — the disnake cache can be stale/empty after a gateway disconnect
+        # or while a guild is unavailable, so confirm with the REST API before assuming
+        # the role is actually gone. Skipping this check caused duplicate role creation.
+        try:
+            api_roles = await guild.fetch_roles()
+            role = next((r for r in api_roles if r.id == row[1]), None)
+        except Exception as e:
+            logger.warning("refresh_flair_to_role() fetch_roles failed for guild {0.id}: {1}; skipping this pass for flair {2}".format(guild, e, flair['name']))
+            return
+
     if role is None:
         # if the role disappeared, just delete the record and re-add
         logger.warn("refresh_flair_to_role() flair {0[2]} is supposed to be in DB as ID {0[1]} but does not exist. Removing DB entry and re-adding".format(row))
@@ -153,20 +164,21 @@ async def cleanup_stale_flairs(guild, valid_flairs):
         return
 
     for role_id, flair_name in stale_entries:
-        # Check if the Discord role still exists
+        # Delete the Discord role first; only drop the DB row if that succeeds.
+        # If we deleted the row first and the role.delete() call later failed, the
+        # orphan Discord role would have no DB mapping and the next sync would
+        # create a duplicate.
         role = guild.get_role(role_id)
-
-        # Delete the database entry
-        cur.execute("DELETE FROM flairmap WHERE discord_role=?", (role_id,))
-        logger.info(f"cleanup_stale_flairs() removed database entry for flair '{flair_name}' (role ID: {role_id})")
-
-        # Optionally delete the Discord role if it still exists
         if role is not None:
             try:
                 await role.delete(reason=f"Flair '{flair_name}' no longer exists in DGG")
                 logger.info(f"cleanup_stale_flairs() deleted Discord role '{role.name}' (ID: {role_id}) for stale flair '{flair_name}'")
             except Exception as e:
-                logger.error(f"cleanup_stale_flairs() failed to delete Discord role {role_id}: {e}")
+                logger.error(f"cleanup_stale_flairs() failed to delete Discord role {role_id}: {e}; leaving DB row intact for retry")
+                continue
+
+        cur.execute("DELETE FROM flairmap WHERE discord_role=?", (role_id,))
+        logger.info(f"cleanup_stale_flairs() removed database entry for flair '{flair_name}' (role ID: {role_id})")
 
     con.commit()
     logger.info(f"cleanup_stale_flairs() cleaned up {len(stale_entries)} stale flair(s)")

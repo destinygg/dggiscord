@@ -39,29 +39,23 @@ logger.info("loading...")
 """
 
 # build a map of the server flair -> role mappings, requires: Discord.Guild
-# filters out stale mappings where the Discord role no longer exists
+# Uses guild.get_role (disnake in-memory cache, no HTTP). Skips rows whose role isn't
+# in the cache, but does NOT delete those rows: the cache can be transiently empty
+# after a gateway disconnect or while a guild is unavailable, and silently deleting
+# the mapping on a cache miss caused duplicate role creation.
+# flairs_to_roles -> cleanup_stale_flairs is the authoritative path for removing rows.
 def flair_map(server):
     flairmap = {}
-    stale_roles = []
     cur.execute("SELECT * from flairmap WHERE discord_server=?", (server.id,))
     rows = cur.fetchall()
 
     for row in rows:
         role_id = row[1]
         flair_name = row[2]
-        # Check if the role still exists in Discord
         if server.get_role(role_id) is not None:
-            flairmap.update({role_id: flair_name})
+            flairmap[role_id] = flair_name
         else:
-            logger.warning(f"flair_map() role ID:{role_id} for flair '{flair_name}' no longer exists in guild {server.id}, excluding from map")
-            stale_roles.append(role_id)
-
-    # Clean up stale database entries
-    if stale_roles:
-        for role_id in stale_roles:
-            cur.execute("DELETE FROM flairmap WHERE discord_role=?", (role_id,))
-        con.commit()
-        logger.info(f"flair_map() cleaned up {len(stale_roles)} stale flair mapping(s) from database")
+            logger.warning(f"flair_map() role ID:{role_id} for flair '{flair_name}' not in cache for guild {server.id}, skipping for this call")
 
     return flairmap
 
