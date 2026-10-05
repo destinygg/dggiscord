@@ -1,54 +1,58 @@
-from helpers.config import cfg
 import logging
+
 import disnake as discord
-import asyncio
 from disnake.ext import commands, tasks
-from disnake import embeds
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
 
-bot = commands.Bot(
-    command_prefix=cfg["discord"]["prefix"],
-    intents=intents
-)
+def create_bot(prefix):
+    intents = discord.Intents.default()
+    intents.members = True
+    intents.message_content = True
 
-
-@bot.event
-async def on_ready():
-    logger.info("Logged in as {0.user.name} ID:{0.user.id}".format(bot))
-    bot.remove_command("help")
+    return commands.Bot(command_prefix=prefix, intents=intents, help_command=None)
 
 
-# rotate through config list of now playing status
-async def refresh_now_playing():
-    nowplaying_next = 0
-    await bot.wait_until_ready()
-    while bot.is_ready():
-        nowplaying_length = len(cfg["discord"]["nowplaying"])
+class Presence(commands.Cog):
+    """Logs the login and rotates the bot's activity through the configured statuses."""
+
+    def __init__(self, bot, nowplaying):
+        self.bot = bot
+        self.nowplaying = nowplaying
+        self.nowplaying_next = 0
+
+    async def cog_load(self):
+        self.refresh_now_playing.start()
+
+    def cog_unload(self):
+        self.refresh_now_playing.cancel()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        logger.info("Logged in as {0.user.name} ID:{0.user.id}".format(self.bot))
+
+    # change it up every 60 * x mins
+    @tasks.loop(seconds=3600)
+    async def refresh_now_playing(self):
+        nowplaying_length = len(self.nowplaying)
 
         # reset back to the first if our nowplaying_next is larger than the list
-        if nowplaying_next >= nowplaying_length:
-            nowplaying_next = 0
+        if self.nowplaying_next >= nowplaying_length:
+            self.nowplaying_next = 0
 
-        nowplaying_name = cfg["discord"]["nowplaying"][nowplaying_next]
+        nowplaying_name = self.nowplaying[self.nowplaying_next]
 
         logger.info(
             "Setting Discord Game presence to {0} ({1}/{2})".format(
-                nowplaying_name, nowplaying_next, nowplaying_length
+                nowplaying_name, self.nowplaying_next, nowplaying_length
             )
         )
-        game = discord.Game(nowplaying_name)
-        await bot.change_presence(activity=game)
+        await self.bot.change_presence(activity=discord.Game(nowplaying_name))
 
-        nowplaying_next += 1
+        self.nowplaying_next += 1
 
-        # change it up every 60 * x mins
-        await asyncio.sleep(3600)
-
-
-bot.loop.create_task(refresh_now_playing())
+    @refresh_now_playing.before_loop
+    async def before_refresh_now_playing(self):
+        await self.bot.wait_until_ready()

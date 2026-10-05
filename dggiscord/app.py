@@ -1,26 +1,59 @@
 import argparse
+import logging
+from functools import partial
 
-import helpers.log
-import helpers.config as config
+from helpers.config import load_config
+from helpers.database import open_db
+from helpers.http import DggApi, get_json
+from helpers.store import Store
+from hub.notifier import load_settings
+from subsync.sync import MemberSync
+from subsync.translator import FlairTranslator
+from discord.client import create_bot, Presence
+from discord.background import BackgroundSync
+from discord.memberstate import MemberState
+from discord.serverstate import ServerState
+from discord.hubnotify import HubNotify
+from commands.sync import SyncCommands
+from commands.syncsettings import SyncSettings
+from commands.livestatuscfg import HubSettings
 
-# Parse args and load config before importing modules that depend on it
-parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
-parser.add_argument("--config", type=str, default="cfg/config.json")
-args = parser.parse_args()
-config.load_config(args.config)
 
-import helpers.database
-import discord.client as client
+def build_bot(cfg, con):
+    """Create the bot with every cog wired to the config and database connection."""
+    store = Store(con)
 
-import subsync.translator
-import subsync.sync
-import discord.background
-import discord.memberstate
-import discord.serverstate
-import discord.hubnotify
+    # every request honors disable_ssl_verify, not just the profile endpoints it's configured under
+    fetch_json = partial(get_json, verify_ssl=not cfg['dgg']['profile'].get('disable_ssl_verify', False))
+    api = DggApi.from_config(cfg, fetch_json)
 
-import commands.sync
-import commands.syncsettings
-import commands.livestatuscfg
+    member_sync = MemberSync(store, api)
+    translator = FlairTranslator(store, api, cfg['dgg']['flair']['translate'], cfg['dgg']['flair']['resync_properties'])
+    admins = cfg['discord']['admins']
 
-client.bot.run(config.cfg['discord']['token'])
+    bot = create_bot(cfg['discord']['prefix'])
+    bot.add_cog(Presence(bot, cfg['discord']['nowplaying']))
+    bot.add_cog(BackgroundSync(bot, store, member_sync, translator, cfg['discord']['background_refresh_rate']))
+    bot.add_cog(MemberState(member_sync))
+    bot.add_cog(ServerState(translator))
+    bot.add_cog(HubNotify(bot, con, fetch_json, load_settings(cfg)))
+    bot.add_cog(SyncCommands(store, member_sync, admins, cfg['dgg']['links']))
+    bot.add_cog(SyncSettings(store, admins))
+    bot.add_cog(HubSettings(store))
+    return bot
+
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+
+    parser = argparse.ArgumentParser(description="dggiscord, a DGG utility.")
+    parser.add_argument("--config", type=str, default="cfg/config.json")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    bot = build_bot(cfg, open_db(cfg['db']))
+    bot.run(cfg['discord']['token'])
+
+
+if __name__ == "__main__":
+    main()

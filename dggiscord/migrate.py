@@ -70,8 +70,8 @@ def main():
         if args.command == "create":
             args.func(args)
         else:
-            config.load_config(args.config)
-            migrator = Migrator(config.cfg['db'])
+            cfg = config.load_config(args.config)
+            migrator = Migrator(cfg['db'])
             args.func(args, migrator)
     except Exception as e:
         logger.error(f"Migration failed: {e}")

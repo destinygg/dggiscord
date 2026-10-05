@@ -1,9 +1,9 @@
-from helpers.config import cfg
-from helpers.log import logging
-from helpers.http import get_json
-from helpers.database import con, cur
+import logging
 from datetime import datetime, timezone
-import discord.client as client
+
+import disnake
+
+from subsync.rules import parse_flair_color, flair_needs_resync, valid_flair_names, stale_flairs
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -27,158 +27,138 @@ logger.info("loading...")
 },
 """
 
-# get the json from dgg, and map the flair roles to a name and server ID, requires: Discord.Guild object
-async def flairs_to_roles(guild):
-    flair_json = await get_json(cfg['dgg']['flair']['endpoint'])
 
-    if flair_json is None:
-        logger.error("flairs_to_roles() unable to create the map after failing to get {} via API call.".format(cfg['dgg']['flair']['endpoint']))
-        return None
+class FlairTranslator:
+    """Keeps a Discord role for each translated DGG flair, matching the flairs API."""
 
-    # Build a set of valid flair names from the API that we want to translate
-    api_flair_names = {flair['name'] for flair in flair_json}
-    translate_flairs = set(cfg['dgg']['flair']['translate'])
-    valid_flairs = api_flair_names & translate_flairs  # Intersection of API flairs and config flairs
+    def __init__(self, store, api, translate, resync_properties):
+        """
+        Args:
+            store: helpers.store.Store
+            api: helpers.http.DggApi
+            translate: names of the flairs to create roles for
+            resync_properties: revert edits to a flair role's name and color
+        """
+        self.store = store
+        self.api = api
+        self.translate = set(translate)
+        self.resync_properties = resync_properties
 
-    # if the flair is one we want to translate to discord set in config.json
-    for flair in flair_json:
-        if flair['name'] in translate_flairs:
-            # see if we have the flair and need to update, or need to create it
-            flair_db = get_flair_if_exists(guild.id, flair)
-            if flair_db is None:
-                await create_new_flair_to_role(guild, flair)
-            else:
-                await refresh_flair_to_role(guild, flair)
+    # get the json from dgg, and map the flair roles to a name and server ID, requires: Discord.Guild object
+    async def flairs_to_roles(self, guild):
+        flair_json = await self.api.flairs()
 
-    # Clean up stale flairs that are no longer in the API or no longer in the translate config
-    await cleanup_stale_flairs(guild, valid_flairs)
+        if flair_json is None:
+            logger.error("flairs_to_roles() unable to create the map after failing to get {} via API call.".format(self.api.flair_endpoint))
+            return None
 
-# lookup the internal DB if we have roles already, or if we need to make the role
-def get_flair_if_exists(guildid, flair):
-    cur.execute("SELECT * from flairmap WHERE discord_server=? AND dgg_flair=?", (guildid, flair['name']))
-    row = cur.fetchone()
+        # Build a set of valid flair names from the API that we want to translate
+        valid_flairs = valid_flair_names(flair_json, self.translate)
 
-    if row:
-        return row
-    else:
-        return None
-
-# make new roles - https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Guild.create_role
-async def create_new_flair_to_role(guild, flair):
-    # build the discord.Color object
-    if flair['color'] == "":
-        color_hex = int("0x000000", 16)
-    else:
-        color_hex = int(flair['color'].replace("#","0x"), 16)
-
-    color = client.discord.Color(color_hex)
-
-    # make the role
-    newrole = await guild.create_role(name=flair['label'], color=color, hoist=True)
-
-    # what time is it, right now (in UTC)
-    now = datetime.now(timezone.utc).isoformat()
-
-    # update the database
-    cur.execute("INSERT INTO flairmap (discord_server, discord_role, dgg_flair, last_updated, last_refresh) VALUES (?,?,?,?,?)", (guild.id, newrole.id, flair['name'], now, now))
-    con.commit()
-
-    logger.info("create_new_flair_to_role() flair {0[name]} created as ID {1.id} on Discord {2.id}".format(flair, guild, newrole))
-
-async def refresh_flair_to_role(guild, flair):
-    # get the record
-    cur.execute("SELECT * from flairmap WHERE discord_server=? AND dgg_flair=?", (guild.id, flair['name']))
-    row = cur.fetchone()
-
-    # what time is it, right now (in UTC)
-    now = datetime.now(timezone.utc).isoformat()
-
-    # get the role from the ID the db returned (disnake in-memory cache lookup, no HTTP)
-    role = guild.get_role(row[1]) # 1 = discord_role
-    if role is None:
-        # Cache miss — the disnake cache can be stale/empty after a gateway disconnect
-        # or while a guild is unavailable, so confirm with the REST API before assuming
-        # the role is actually gone. Skipping this check caused duplicate role creation.
-        try:
-            api_roles = await guild.fetch_roles()
-            role = next((r for r in api_roles if r.id == row[1]), None)
-        except Exception as e:
-            logger.warning("refresh_flair_to_role() fetch_roles failed for guild {0.id}: {1}; skipping this pass for flair {2}".format(guild, e, flair['name']))
-            return
-
-    if role is None:
-        # if the role disappeared, just delete the record and re-add
-        logger.warn("refresh_flair_to_role() flair {0[2]} is supposed to be in DB as ID {0[1]} but does not exist. Removing DB entry and re-adding".format(row))
-        cur.execute("DELETE from flairmap WHERE discord_server=? AND dgg_flair=?", (guild.id, flair['name']))
-        await create_new_flair_to_role(guild, flair)
-    else:
-        # we need to make sure the name and color are still matching
-        if cfg['dgg']['flair']['resync_properties']:
-            logger.info("refresh_flair_to_role() property refresh enabled, attempting sync")
-
-            if role.name != flair['label'] or str(role.color) != flair['color'].lower():
-                logger.warn("refresh_flair_to_role() flair {0[2]} has been edited, reverting changes to reflect API truth".format(row))
-
-                if flair['color'] == "":
-                    color_hex = int("0x000000", 16)
+        # if the flair is one we want to translate to discord set in config.json
+        for flair in flair_json:
+            if flair['name'] in self.translate:
+                # see if we have the flair and need to update, or need to create it
+                if self.store.flair_role(guild.id, flair['name']) is None:
+                    await self.create_new_flair_to_role(guild, flair)
                 else:
-                    color_hex = int(flair['color'].replace("#","0x"), 16)
-                color = client.discord.Color(color_hex)
+                    await self.refresh_flair_to_role(guild, flair)
 
-                udrole = await role.edit(name=flair['label'], color=color, hoist=True)
+        # Clean up stale flairs that are no longer in the API or no longer in the translate config
+        await self.cleanup_stale_flairs(guild, valid_flairs)
 
-                # update the database
-                cur.execute("UPDATE flairmap SET last_updated=? WHERE discord_role=?", (now, row[1]))
-            else:
-                logger.info("refresh_flair_to_role() flair {0[2]} with ID {0[1]} is ok, no changes required".format(row))
+    # make new roles - https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Guild.create_role
+    async def create_new_flair_to_role(self, guild, flair):
+        color = disnake.Color(parse_flair_color(flair['color']))
+
+        # make the role
+        newrole = await guild.create_role(name=flair['label'], color=color, hoist=True)
+
+        # what time is it, right now (in UTC)
+        now = datetime.now(timezone.utc).isoformat()
+
+        self.store.add_flair_role(guild.id, newrole.id, flair['name'], now)
+
+        logger.info("create_new_flair_to_role() flair {0[name]} created as ID {1.id} on Discord {2.id}".format(flair, guild, newrole))
+
+    async def refresh_flair_to_role(self, guild, flair):
+        role_id = self.store.flair_role(guild.id, flair['name'])
+
+        # what time is it, right now (in UTC)
+        now = datetime.now(timezone.utc).isoformat()
+
+        # get the role from the ID the db returned (disnake in-memory cache lookup, no HTTP)
+        role = guild.get_role(role_id)
+        if role is None:
+            # Cache miss — the disnake cache can be stale/empty after a gateway disconnect
+            # or while a guild is unavailable, so confirm with the REST API before assuming
+            # the role is actually gone. Skipping this check caused duplicate role creation.
+            try:
+                api_roles = await guild.fetch_roles()
+                role = next((r for r in api_roles if r.id == role_id), None)
+            except Exception as e:
+                logger.warning("refresh_flair_to_role() fetch_roles failed for guild {0.id}: {1}; skipping this pass for flair {2}".format(guild, e, flair['name']))
+                return
+
+        if role is None:
+            # if the role disappeared, just delete the record and re-add
+            logger.warning("refresh_flair_to_role() flair {0} is supposed to be in DB as ID {1} but does not exist. Removing DB entry and re-adding".format(flair['name'], role_id))
+            self.store.delete_flair_role(role_id)
+            await self.create_new_flair_to_role(guild, flair)
         else:
-            logger.info("refresh_flair_to_role() property refresh disabled, skipping sync")
+            updated = False
 
-        logger.info("refresh_flair_to_role() refresh completed")
-        cur.execute("UPDATE flairmap SET last_refresh=? WHERE discord_role=?", (now, row[1]))
-        con.commit()
+            # we need to make sure the name and color are still matching
+            if self.resync_properties:
+                logger.info("refresh_flair_to_role() property refresh enabled, attempting sync")
 
-# remove stale flair mappings from the database when the flair no longer exists in DGG or config
-async def cleanup_stale_flairs(guild, valid_flairs):
-    """Remove flair mappings from database for flairs that no longer exist in DGG API or translate config.
+                if flair_needs_resync(role.name, str(role.color), flair):
+                    logger.warning("refresh_flair_to_role() flair {0} has been edited, reverting changes to reflect API truth".format(flair['name']))
 
-    Args:
-        guild: Discord.Guild object
-        valid_flairs: Set of flair names that are currently valid (exist in API and config)
-    """
-    # Get all flairs currently in the database for this guild
-    cur.execute("SELECT discord_role, dgg_flair FROM flairmap WHERE discord_server=?", (guild.id,))
-    rows = cur.fetchall()
+                    color = disnake.Color(parse_flair_color(flair['color']))
 
-    stale_entries = []
-    for row in rows:
-        role_id = row[0]
-        flair_name = row[1]
+                    await role.edit(name=flair['label'], color=color, hoist=True)
+                    updated = True
+                else:
+                    logger.info("refresh_flair_to_role() flair {0} with ID {1} is ok, no changes required".format(flair['name'], role_id))
+            else:
+                logger.info("refresh_flair_to_role() property refresh disabled, skipping sync")
 
-        if flair_name not in valid_flairs:
-            stale_entries.append((role_id, flair_name))
+            logger.info("refresh_flair_to_role() refresh completed")
+            self.store.mark_flair_refreshed(role_id, now, updated)
+
+    # remove stale flair mappings from the database when the flair no longer exists in DGG or config
+    async def cleanup_stale_flairs(self, guild, valid_flairs):
+        """Remove flair mappings from database for flairs that no longer exist in DGG API or translate config.
+
+        Args:
+            guild: Discord.Guild object
+            valid_flairs: Set of flair names that are currently valid (exist in API and config)
+        """
+        # Get all flairs currently in the database for this guild
+        stale_entries = stale_flairs(self.store.flair_mappings(guild.id), valid_flairs)
+        for _, flair_name in stale_entries:
             logger.warning(f"cleanup_stale_flairs() flair '{flair_name}' no longer exists in DGG API or translate config, marking for cleanup")
 
-    if not stale_entries:
-        logger.debug("cleanup_stale_flairs() no stale flairs found")
-        return
+        if not stale_entries:
+            logger.debug("cleanup_stale_flairs() no stale flairs found")
+            return
 
-    for role_id, flair_name in stale_entries:
-        # Delete the Discord role first; only drop the DB row if that succeeds.
-        # If we deleted the row first and the role.delete() call later failed, the
-        # orphan Discord role would have no DB mapping and the next sync would
-        # create a duplicate.
-        role = guild.get_role(role_id)
-        if role is not None:
-            try:
-                await role.delete(reason=f"Flair '{flair_name}' no longer exists in DGG")
-                logger.info(f"cleanup_stale_flairs() deleted Discord role '{role.name}' (ID: {role_id}) for stale flair '{flair_name}'")
-            except Exception as e:
-                logger.error(f"cleanup_stale_flairs() failed to delete Discord role {role_id}: {e}; leaving DB row intact for retry")
-                continue
+        for role_id, flair_name in stale_entries:
+            # Delete the Discord role first; only drop the DB row if that succeeds.
+            # If we deleted the row first and the role.delete() call later failed, the
+            # orphan Discord role would have no DB mapping and the next sync would
+            # create a duplicate.
+            role = guild.get_role(role_id)
+            if role is not None:
+                try:
+                    await role.delete(reason=f"Flair '{flair_name}' no longer exists in DGG")
+                    logger.info(f"cleanup_stale_flairs() deleted Discord role '{role.name}' (ID: {role_id}) for stale flair '{flair_name}'")
+                except Exception as e:
+                    logger.error(f"cleanup_stale_flairs() failed to delete Discord role {role_id}: {e}; leaving DB row intact for retry")
+                    continue
 
-        cur.execute("DELETE FROM flairmap WHERE discord_role=?", (role_id,))
-        logger.info(f"cleanup_stale_flairs() removed database entry for flair '{flair_name}' (role ID: {role_id})")
+            self.store.delete_flair_role(role_id)
+            logger.info(f"cleanup_stale_flairs() removed database entry for flair '{flair_name}' (role ID: {role_id})")
 
-    con.commit()
-    logger.info(f"cleanup_stale_flairs() cleaned up {len(stale_entries)} stale flair(s)")
+        logger.info(f"cleanup_stale_flairs() cleaned up {len(stale_entries)} stale flair(s)")
