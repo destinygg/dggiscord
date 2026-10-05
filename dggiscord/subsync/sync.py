@@ -2,6 +2,7 @@ from helpers.config import cfg
 from helpers.log import logging
 from helpers.http import get_dgg_profile, get_all_dgg_profiles
 from helpers.database import con, cur
+from subsync.rules import roles_to_add, roles_to_remove, index_members, target_nick, can_modify_member
 import discord.client as client
 import disnake
 
@@ -134,38 +135,18 @@ def already_has_role(roleid, member):
 
 # checks the roles applied vs what the API has, requires get_profile(), Discord.Member, flair_map()
 async def remove_user_roles(profile, member, flairmap):
-    # build a list of the discord role IDs
-    rolelist = []
-    for role in member.roles:
-        rolelist.append(role.id)
-
-    # intersect against the flairmap keys
-    inter = list(set(rolelist) & set(flairmap.keys()))
-
-    # if we intersect, check if we can have the role
-    if inter:
-        for role in inter:
-            # handle users who have roles but not a liked account:
-            if profile is None:
-                logger.info("remove_user_roles() removing role ID:{0} to member ID:{1.id} server ID:{1.guild.id} (NO SYNC)".format(role, member))
-                await remove_role(role, member)
-                continue
-
-            # if the user does not have a valid lookup, remove the role
-            flair = flairmap[role] # I am sure this blind lookup will never be a problem in the future
-            if flair in profile['features']:
-                logger.debug("remove_user_roles() role is not up for removal on member ID:{0.id} server ID:{0.guild.id}".format(member))
-            else:
-                logger.info("remove_user_roles() removing role ID:{0} to member ID:{1.id} server ID:{1.guild.id}".format(role, member))
-                await remove_role(role, member)
+    for role in roles_to_remove([role.id for role in member.roles], profile, flairmap):
+        if profile is None:
+            logger.info("remove_user_roles() removing role ID:{0} to member ID:{1.id} server ID:{1.guild.id} (NO SYNC)".format(role, member))
+        else:
+            logger.info("remove_user_roles() removing role ID:{0} to member ID:{1.id} server ID:{1.guild.id}".format(role, member))
+        await remove_role(role, member)
 
 # checks and assigns the role to a user if the user does not already have the role, requires: profile(json), Discord.Member, role_map()
 async def add_user_roles(profile, member, rolemap):
-    for feature in profile['features']:
-        if feature in rolemap:
-            if not already_has_role(rolemap[feature], member):
-                logger.info("add_user_roles() applying role ID:{0} to member ID:{1.id} on server ID:{1.guild.id}".format(rolemap[feature], member))
-                await add_role(rolemap[feature], member)
+    for role in roles_to_add([role.id for role in member.roles], profile, rolemap):
+        logger.info("add_user_roles() applying role ID:{0} to member ID:{1.id} on server ID:{1.guild.id}".format(role, member))
+        await add_role(role, member)
 
 # the 1 line abstraction to call to update a user throughout the bot, requires: Discord.Member, optional: flair_map() and role_map()
 async def update_member(member, fmap=None, rmap=None, dgg_index=None):
@@ -190,51 +171,18 @@ async def update_member(member, fmap=None, rmap=None, dgg_index=None):
         await add_user_roles(api, member, rmap)
     await remove_user_roles(api, member, fmap)
 
-# get all accounts with discord from dgg, index the data and return a k/v store by Discord ID
+# get all accounts with discord from dgg, index the data and return a k/v store by Discord ID,
+# or None if the API call failed
 async def get_all_members_indexed():
     members = await get_all_dgg_profiles()
 
-    if members['status'] != "success":
+    index = index_members(members)
+    if index is None:
         logger.error(f'get_all_members_indexed() API responded with unparsable result {members}')
-        return
-    else:
-        logger.info(f'get_all_members_indexed() got API result with {len(members["data"])} accounts')
+        return None
 
-    index = {}
-
-    for member in members['data']:
-        # only index active accounts
-        if member['status'] != "Active":
-            continue
-
-        # cast to an int, because disnake considers User.ID uint64 against Discord recommendation lol!
-        snowflake = int(member['authId'])
-        index[snowflake] = member
-
-        # pack the dict to match /api/info/profile response if dggSub exists
-        if member['dggSub'] is not None:
-            index[snowflake]['subscription'] = index[snowflake]['dggSub']
-
-    logger.info(f'get_all_members_indexed() Index completed with {len(index)} accounts')
-
+    logger.info(f'get_all_members_indexed() Index completed with {len(index)} accounts from {len(members["data"])} results')
     return index
-
-
-def can_modify_member_nickname(guild, target_member):
-    """Check if the bot can modify the target member's nickname."""
-    bot_member = guild.get_member(client.bot.user.id)
-    if bot_member is None:
-        return False
-
-    # Can't modify the server owner's nickname
-    if target_member.id == guild.owner_id:
-        return False
-
-    # Bot's highest role must be higher than target's highest role
-    if bot_member.top_role <= target_member.top_role:
-        return False
-
-    return True
 
 
 # update member's username to match DGG profile, requires: Discord.Member, optional: dgg_index
@@ -253,12 +201,13 @@ async def update_member_username(member, dgg_index=None):
     if api is None:
         return
 
-    dgg_nick = api.get('nick') or api.get('username')
+    dgg_nick = target_nick(api)
     if dgg_nick is None:
         return
 
     # Check if we can modify this member
-    if not can_modify_member_nickname(member.guild, member):
+    bot_member = member.guild.get_member(client.bot.user.id)
+    if not can_modify_member(bot_member, member, member.guild.owner_id):
         logger.debug(f"update_member_username() cannot modify member {member.id} in guild {member.guild.id}")
         return
 

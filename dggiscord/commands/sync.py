@@ -2,6 +2,7 @@ from helpers.config import cfg
 from helpers.log import logging
 from helpers.database import cur
 from subsync.sync import update_member, get_profile, add_verified_role
+from subsync.rules import target_nick, can_modify_member
 import discord.client as client
 import disnake
 import time
@@ -51,31 +52,14 @@ def user_is_privledge(ctx):
     return False
 
 
-def can_modify_member(guild, target_member):
-    """Check if the bot can modify the target member's nickname."""
-    bot_member = guild.get_member(client.bot.user.id)
-    if bot_member is None:
-        return False
-
-    # Can't modify the server owner's nickname
-    if target_member.id == guild.owner_id:
-        return False
-
-    # Bot's highest role must be higher than target's highest role
-    if bot_member.top_role <= target_member.top_role:
-        return False
-
-    return True
-
-
 async def sync_username(member, profile, guild):
     """Sync the member's Discord nickname to their DGG username. Returns success status and message."""
-    dgg_nick = profile.get('nick') or profile.get('username')
+    dgg_nick = target_nick(profile)
     if dgg_nick is None:
         return False, "Could not retrieve your DGG username."
 
     # Check if we can modify this member
-    if not can_modify_member(guild, member):
+    if not can_modify_member(guild.get_member(client.bot.user.id), member, guild.owner_id):
         logger.info(f"sync_username() cannot modify member {member.id} in guild {guild.id} (role hierarchy or owner)")
         return False, "Cannot update your nickname (you may be the server owner or have a higher role than the bot)."
 
@@ -184,7 +168,7 @@ async def sync(ctx):
             results.append(f"tier {profile['subscription']['tier']} subscription (expires {expires_formatted} UTC)")
 
     # Build response
-    nick = profile.get('nick') or profile.get('username') or 'Unknown'
+    nick = target_nick(profile) or 'Unknown'
     response_parts = [f"{ctx.message.author.mention} your profile is connected to `{nick}`."]
 
     if results:

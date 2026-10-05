@@ -2,6 +2,7 @@ from helpers.config import cfg
 from helpers.log import logging
 from helpers.http import get_json
 from helpers.database import con, cur
+from subsync.rules import parse_flair_color, flair_needs_resync, valid_flair_names, stale_flairs
 from datetime import datetime, timezone
 import discord.client as client
 
@@ -36,9 +37,8 @@ async def flairs_to_roles(guild):
         return None
 
     # Build a set of valid flair names from the API that we want to translate
-    api_flair_names = {flair['name'] for flair in flair_json}
     translate_flairs = set(cfg['dgg']['flair']['translate'])
-    valid_flairs = api_flair_names & translate_flairs  # Intersection of API flairs and config flairs
+    valid_flairs = valid_flair_names(flair_json, translate_flairs)
 
     # if the flair is one we want to translate to discord set in config.json
     for flair in flair_json:
@@ -65,13 +65,7 @@ def get_flair_if_exists(guildid, flair):
 
 # make new roles - https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Guild.create_role
 async def create_new_flair_to_role(guild, flair):
-    # build the discord.Color object
-    if flair['color'] == "":
-        color_hex = int("0x000000", 16)
-    else:
-        color_hex = int(flair['color'].replace("#","0x"), 16)
-
-    color = client.discord.Color(color_hex)
+    color = client.discord.Color(parse_flair_color(flair['color']))
 
     # make the role
     newrole = await guild.create_role(name=flair['label'], color=color, hoist=True)
@@ -116,14 +110,10 @@ async def refresh_flair_to_role(guild, flair):
         if cfg['dgg']['flair']['resync_properties']:
             logger.info("refresh_flair_to_role() property refresh enabled, attempting sync")
 
-            if role.name != flair['label'] or str(role.color) != flair['color'].lower():
+            if flair_needs_resync(role.name, str(role.color), flair):
                 logger.warn("refresh_flair_to_role() flair {0[2]} has been edited, reverting changes to reflect API truth".format(row))
 
-                if flair['color'] == "":
-                    color_hex = int("0x000000", 16)
-                else:
-                    color_hex = int(flair['color'].replace("#","0x"), 16)
-                color = client.discord.Color(color_hex)
+                color = client.discord.Color(parse_flair_color(flair['color']))
 
                 udrole = await role.edit(name=flair['label'], color=color, hoist=True)
 
@@ -148,16 +138,9 @@ async def cleanup_stale_flairs(guild, valid_flairs):
     """
     # Get all flairs currently in the database for this guild
     cur.execute("SELECT discord_role, dgg_flair FROM flairmap WHERE discord_server=?", (guild.id,))
-    rows = cur.fetchall()
-
-    stale_entries = []
-    for row in rows:
-        role_id = row[0]
-        flair_name = row[1]
-
-        if flair_name not in valid_flairs:
-            stale_entries.append((role_id, flair_name))
-            logger.warning(f"cleanup_stale_flairs() flair '{flair_name}' no longer exists in DGG API or translate config, marking for cleanup")
+    stale_entries = stale_flairs(cur.fetchall(), valid_flairs)
+    for _, flair_name in stale_entries:
+        logger.warning(f"cleanup_stale_flairs() flair '{flair_name}' no longer exists in DGG API or translate config, marking for cleanup")
 
     if not stale_entries:
         logger.debug("cleanup_stale_flairs() no stale flairs found")
