@@ -1,6 +1,6 @@
 from helpers.config import cfg
 from helpers.log import logging
-from helpers.http import get_dgg_profile, get_all_dgg_profiles
+from helpers.dgg import api
 from helpers.database import store
 from subsync.rules import roles_to_add, roles_to_remove, index_members, target_nick, can_modify_member
 import discord.client as client
@@ -63,8 +63,7 @@ def role_map(server):
 
 # get the user's account as it stands on DGG, requires: Discord.Member
 async def get_profile(member):
-    profile = await get_dgg_profile(member.id)
-    return profile
+    return await api.profile(member.id)
 
 # remove a role, requies: role(ID), Discord.Member
 async def remove_role(role, member):
@@ -169,7 +168,7 @@ async def update_member(member, fmap=None, rmap=None, dgg_index=None):
 # get all accounts with discord from dgg, index the data and return a k/v store by Discord ID,
 # or None if the API call failed
 async def get_all_members_indexed():
-    members = await get_all_dgg_profiles()
+    members = await api.all_profiles()
 
     index = index_members(members)
     if index is None:

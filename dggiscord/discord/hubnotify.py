@@ -1,7 +1,7 @@
 from helpers.config import cfg
 from helpers.log import logging
 from helpers.database import con
-from helpers.http import get_json
+from helpers.dgg import fetch_json
 from hub.notifier import HubNotifier, load_settings
 import discord.client as client
 
@@ -27,7 +27,7 @@ async def edit_message(channel_id, message_id, content, embed):
     await get_channel(channel_id).get_partial_message(message_id).edit(content=content, embed=embed)
 
 
-notifier = HubNotifier(con, get_json, send_to_channel, edit_message, settings)
+notifier = HubNotifier(con, fetch_json, send_to_channel, edit_message, settings)
 
 
 @client.tasks.loop(seconds=settings['poll_interval'])

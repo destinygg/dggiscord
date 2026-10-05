@@ -1,6 +1,6 @@
 from helpers.config import cfg
 from helpers.log import logging
-from helpers.http import get_json
+from helpers.dgg import api
 from helpers.database import store
 from subsync.rules import parse_flair_color, flair_needs_resync, valid_flair_names, stale_flairs
 from datetime import datetime, timezone
@@ -30,10 +30,10 @@ logger.info("loading...")
 
 # get the json from dgg, and map the flair roles to a name and server ID, requires: Discord.Guild object
 async def flairs_to_roles(guild):
-    flair_json = await get_json(cfg['dgg']['flair']['endpoint'])
+    flair_json = await api.flairs()
 
     if flair_json is None:
-        logger.error("flairs_to_roles() unable to create the map after failing to get {} via API call.".format(cfg['dgg']['flair']['endpoint']))
+        logger.error("flairs_to_roles() unable to create the map after failing to get {} via API call.".format(api.flair_endpoint))
         return None
 
     # Build a set of valid flair names from the API that we want to translate
