@@ -32,6 +32,10 @@ async def background_update_roles():
     start = time.time()
 
     dgg_subscriber_index = await get_all_members_indexed()
+    if dgg_subscriber_index is None:
+        # without the index, update_member() would query the API once per member
+        logger.error("background_update_roles() skipping this pass, unable to get the member index")
+        return
 
     for guild in client.bot.guilds:
         settings = get_sync_settings(guild.id)
