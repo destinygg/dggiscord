@@ -1,6 +1,6 @@
 from helpers.config import cfg
 from helpers.log import logging
-from helpers.database import cur
+from helpers.database import store
 from subsync.sync import update_member, get_profile, add_verified_role
 from subsync.rules import target_nick, can_modify_member
 import discord.client as client
@@ -9,21 +9,6 @@ import time
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
-
-
-def get_sync_settings(guild_id):
-    """Get sync settings for a guild. Returns dict with sync_subscription and sync_username."""
-    cur.execute("SELECT sync_subscription, sync_username FROM syncsettings WHERE discord_server=?", (guild_id,))
-    row = cur.fetchone()
-    if row is None:
-        return {"sync_subscription": False, "sync_username": False}
-    return {"sync_subscription": bool(row[0]), "sync_username": bool(row[1])}
-
-
-def is_any_sync_enabled(guild_id):
-    """Check if any sync option is enabled for a guild."""
-    settings = get_sync_settings(guild_id)
-    return settings["sync_subscription"] or settings["sync_username"]
 
 
 # https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Permissions
@@ -83,7 +68,7 @@ async def syncother(ctx):
         return
 
     # Check if sync is disabled for this server
-    if not is_any_sync_enabled(ctx.message.guild.id):
+    if not store.sync_enabled(ctx.message.guild.id):
         await ctx.reply("Sync feature is currently disabled for this server.")
         return
 
@@ -91,7 +76,7 @@ async def syncother(ctx):
         await ctx.reply("{0.message.author.mention} mention the users you wish to sync. Multiple mentions/users supported.".format(ctx, cfg))
         return
 
-    settings = get_sync_settings(ctx.message.guild.id)
+    settings = store.sync_settings(ctx.message.guild.id)
 
     for member in ctx.message.mentions:
         profile = await get_profile(member)
@@ -127,7 +112,7 @@ async def sync(ctx):
         return
 
     # Check if sync is disabled for this server
-    if not is_any_sync_enabled(ctx.message.guild.id):
+    if not store.sync_enabled(ctx.message.guild.id):
         await ctx.reply("{0.message.author.mention} sync feature is currently disabled for this server.".format(ctx))
         return
 
@@ -138,7 +123,7 @@ async def sync(ctx):
         await ctx.reply("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[dgg][links][auth]}> and try again.".format(ctx, cfg))
         return
 
-    settings = get_sync_settings(ctx.message.guild.id)
+    settings = store.sync_settings(ctx.message.guild.id)
     results = []
     messages = []
 

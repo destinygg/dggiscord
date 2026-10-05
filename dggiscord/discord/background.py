@@ -1,6 +1,6 @@
 from helpers.config import cfg
 from helpers.log import logging
-from helpers.database import cur
+from helpers.database import store
 from subsync.sync import update_member, update_member_username, flair_map, role_map, get_all_members_indexed
 from subsync.translator import flairs_to_roles
 import discord.client as client
@@ -8,21 +8,6 @@ import time
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
-
-
-def get_sync_settings(guild_id):
-    """Get sync settings for a guild. Returns dict with sync_subscription and sync_username."""
-    cur.execute("SELECT sync_subscription, sync_username FROM syncsettings WHERE discord_server=?", (guild_id,))
-    row = cur.fetchone()
-    if row is None:
-        return {"sync_subscription": False, "sync_username": False}
-    return {"sync_subscription": bool(row[0]), "sync_username": bool(row[1])}
-
-
-def is_any_sync_enabled(guild_id):
-    """Check if any sync option is enabled for a guild."""
-    settings = get_sync_settings(guild_id)
-    return settings["sync_subscription"] or settings["sync_username"]
 
 
 @client.tasks.loop(seconds=cfg['discord']['background_refresh_rate']*60)
@@ -38,7 +23,7 @@ async def background_update_roles():
         return
 
     for guild in client.bot.guilds:
-        settings = get_sync_settings(guild.id)
+        settings = store.sync_settings(guild.id)
 
         # Check if any sync is enabled for this guild
         if not settings["sync_subscription"] and not settings["sync_username"]:

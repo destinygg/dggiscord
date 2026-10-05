@@ -1,25 +1,10 @@
 from helpers.log import logging
-from helpers.database import con, cur
+from helpers.database import store
 import discord.client as client
 from commands.sync import user_is_privledge
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
-
-
-def get_sync_settings(guild_id):
-    """Get sync settings for a guild. Returns dict with sync_subscription and sync_username."""
-    cur.execute("SELECT sync_subscription, sync_username FROM syncsettings WHERE discord_server=?", (guild_id,))
-    row = cur.fetchone()
-    if row is None:
-        return {"sync_subscription": False, "sync_username": False}
-    return {"sync_subscription": bool(row[0]), "sync_username": bool(row[1])}
-
-
-def is_any_sync_enabled(guild_id):
-    """Check if any sync option is enabled for a guild."""
-    settings = get_sync_settings(guild_id)
-    return settings["sync_subscription"] or settings["sync_username"]
 
 
 @client.bot.command(name="sync-settings", aliases=["syncsettings"])
@@ -47,7 +32,7 @@ async def sync_settings(ctx, action=None, setting=None):
     guild_id = ctx.message.guild.id
 
     if action is None:
-        settings = get_sync_settings(guild_id)
+        settings = store.sync_settings(guild_id)
         sub_status = "enabled" if settings["sync_subscription"] else "disabled"
         user_status = "enabled" if settings["sync_username"] else "disabled"
 
@@ -75,63 +60,17 @@ async def sync_settings(ctx, action=None, setting=None):
 
     setting = setting.lower()
 
-    if action == "enable":
-        if setting == "subscription":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 1, 0)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_subscription = 1
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: subscription sync enabled for server {guild_id}')
-            await ctx.reply("**Subscription sync** has been **enabled** for this server.")
-        elif setting == "username":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 0, 1)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_username = 1
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: username sync enabled for server {guild_id}')
-            await ctx.reply("**Username sync** has been **enabled** for this server.")
-        elif setting == "all":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 1, 1)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_subscription = 1, sync_username = 1
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: all sync enabled for server {guild_id}')
-            await ctx.reply("**Subscription and username sync** have been **enabled** for this server.")
-        else:
-            await ctx.reply("Invalid setting. Use `subscription`, `username`, or `all`.")
-    elif action == "disable":
-        if setting == "subscription":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 0, 0)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_subscription = 0
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: subscription sync disabled for server {guild_id}')
-            await ctx.reply("**Subscription sync** has been **disabled** for this server.")
-        elif setting == "username":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 0, 0)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_username = 0
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: username sync disabled for server {guild_id}')
-            await ctx.reply("**Username sync** has been **disabled** for this server.")
-        elif setting == "all":
-            cur.execute("""
-                INSERT INTO syncsettings (discord_server, sync_subscription, sync_username)
-                VALUES (?, 0, 0)
-                ON CONFLICT(discord_server) DO UPDATE SET sync_subscription = 0, sync_username = 0
-            """, (guild_id,))
-            con.commit()
-            logger.info(f'sync-settings: all sync disabled for server {guild_id}')
-            await ctx.reply("**Subscription and username sync** have been **disabled** for this server.")
-        else:
-            await ctx.reply("Invalid setting. Use `subscription`, `username`, or `all`.")
+    labels = {
+        "subscription": ("**Subscription sync** has", ("sync_subscription",)),
+        "username": ("**Username sync** has", ("sync_username",)),
+        "all": ("**Subscription and username sync** have", ("sync_subscription", "sync_username")),
+    }
+    if setting not in labels:
+        await ctx.reply("Invalid setting. Use `subscription`, `username`, or `all`.")
+        return
+
+    label, columns = labels[setting]
+    enabled = action == "enable"
+    store.set_sync_settings(guild_id, **{column: enabled for column in columns})
+    logger.info(f'sync-settings: {setting} sync {action}d for server {guild_id}')
+    await ctx.reply(f"{label} been **{action}d** for this server.")

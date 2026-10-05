@@ -1,7 +1,7 @@
 from helpers.config import cfg
 from helpers.log import logging
 from helpers.http import get_dgg_profile, get_all_dgg_profiles
-from helpers.database import con, cur
+from helpers.database import store
 from subsync.rules import roles_to_add, roles_to_remove, index_members, target_nick, can_modify_member
 import discord.client as client
 import disnake
@@ -47,12 +47,7 @@ logger.info("loading...")
 # flairs_to_roles -> cleanup_stale_flairs is the authoritative path for removing rows.
 def flair_map(server):
     flairmap = {}
-    cur.execute("SELECT * from flairmap WHERE discord_server=?", (server.id,))
-    rows = cur.fetchall()
-
-    for row in rows:
-        role_id = row[1]
-        flair_name = row[2]
+    for role_id, flair_name in store.flair_mappings(server.id):
         if server.get_role(role_id) is not None:
             flairmap[role_id] = flair_name
         else:

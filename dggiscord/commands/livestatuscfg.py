@@ -1,5 +1,5 @@
 from helpers.log import logging
-from helpers.database import con, cur
+from helpers.database import store
 import discord.client as client
 from disnake.ext import commands
 
@@ -14,25 +14,18 @@ async def hubchannel(ctx, arg=None):
         return
 
     if arg == "get":
-        cur.execute("SELECT hubchannel FROM hubchannels WHERE discord_server=?", (ctx.message.guild.id,))
-        row = cur.fetchone()
+        channel_id = store.hub_channel(ctx.message.guild.id)
 
-        logger.info(f'hubchannel get response from db {row}')
-        if row is None or row[0] is None:
+        logger.info(f'hubchannel get response from db {channel_id}')
+        if channel_id is None:
             await ctx.reply('No hub channel is set. Use `hubchannel set` in the channel that should receive notifications.')
         else:
-            await ctx.reply(f'Current hub channel is set to <#{row[0]}>')
+            await ctx.reply(f'Current hub channel is set to <#{channel_id}>')
     elif arg == "set":
-        # update only the channel so the server's notify role is kept
-        cur.execute("""
-            INSERT INTO hubchannels (discord_server, hubchannel) VALUES (?, ?)
-            ON CONFLICT(discord_server) DO UPDATE SET hubchannel = excluded.hubchannel
-        """, (ctx.message.guild.id, ctx.message.channel.id))
-        con.commit()
+        store.set_hub_channel(ctx.message.guild.id, ctx.message.channel.id)
         await ctx.reply(f'Channel set to <#{ctx.message.channel.id}>. Stream and new video notifications will be posted here.')
     elif arg == "unset":
-        cur.execute("UPDATE hubchannels SET hubchannel = NULL WHERE discord_server=?", (ctx.message.guild.id,))
-        con.commit()
+        store.set_hub_channel(ctx.message.guild.id, None)
         await ctx.reply('Hub channel removed. Notifications will no longer be posted.')
     else:
         await ctx.reply('Error: Command args `set|get|unset`.')
@@ -46,16 +39,15 @@ async def hubrole(ctx, arg=None, *, role=None):
         return
 
     if arg == "get":
-        cur.execute("SELECT notifyrole FROM hubchannels WHERE discord_server=?", (ctx.message.guild.id,))
-        row = cur.fetchone()
+        role_id = store.hub_notify_role(ctx.message.guild.id)
 
-        logger.info(f'hubrole get response from db {row}')
-        if row is None or row[0] is None:
+        logger.info(f'hubrole get response from db {role_id}')
+        if role_id is None:
             await ctx.reply('No notify role is set.')
         else:
             # describe the role by name so replying doesn't ping it
-            notify_role = ctx.message.guild.get_role(row[0])
-            name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({row[0]})'
+            notify_role = ctx.message.guild.get_role(role_id)
+            name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({role_id})'
             await ctx.reply(f'Hub notifications mention {name}.')
     elif arg == "set":
         if role is None:
@@ -72,11 +64,7 @@ async def hubrole(ctx, arg=None, *, role=None):
             await ctx.reply('Error: @everyone can\'t be used as the notify role.')
             return
 
-        cur.execute("""
-            INSERT INTO hubchannels (discord_server, notifyrole) VALUES (?, ?)
-            ON CONFLICT(discord_server) DO UPDATE SET notifyrole = excluded.notifyrole
-        """, (ctx.message.guild.id, notify_role.id))
-        con.commit()
+        store.set_hub_notify_role(ctx.message.guild.id, notify_role.id)
         logger.info(f'hubrole set to {notify_role.id} for server {ctx.message.guild.id}')
 
         reply = f'Hub notifications will mention **{notify_role.name}**.'
@@ -85,8 +73,7 @@ async def hubrole(ctx, arg=None, *, role=None):
                       'permission, so the mention won\'t notify anyone. Make the role mentionable or give the bot that permission.')
         await ctx.reply(reply)
     elif arg == "unset":
-        cur.execute("UPDATE hubchannels SET notifyrole = NULL WHERE discord_server=?", (ctx.message.guild.id,))
-        con.commit()
+        store.set_hub_notify_role(ctx.message.guild.id, None)
         await ctx.reply('Notify role removed. Hub notifications will no longer mention a role.')
     else:
         await ctx.reply('Error: Command args `set <role>|get|unset`.')
