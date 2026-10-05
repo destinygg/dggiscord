@@ -31,7 +31,7 @@ def build_bot(cfg, con):
     translator = FlairTranslator(store, api, cfg['dgg']['flair']['translate'], cfg['dgg']['flair']['resync_properties'])
     admins = cfg['discord']['admins']
 
-    bot = create_bot(cfg['discord']['prefix'])
+    bot = create_bot()
     bot.add_cog(Presence(bot, cfg['discord']['nowplaying']))
     bot.add_cog(BackgroundSync(bot, store, member_sync, translator, cfg['discord']['background_refresh_rate']))
     bot.add_cog(MemberState(member_sync))

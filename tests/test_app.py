@@ -5,6 +5,8 @@ import sqlite3
 import tempfile
 import unittest
 
+import disnake
+
 from app import build_bot
 from helpers.migrator import Migrator
 
@@ -32,17 +34,24 @@ class BuildBotTest(unittest.IsolatedAsyncioTestCase):
             self.bot.remove_cog(name)
         await asyncio.sleep(0)
 
-    def test_registers_every_command(self):
+    def test_registers_every_slash_command(self):
         self.assertEqual(
-            sorted(command.name for command in self.bot.commands),
+            sorted(command.name for command in self.bot.slash_commands),
             ["hubchannel", "hubrole", "sync", "sync-settings", "syncother"],
         )
 
-    def test_no_help_command(self):
-        self.assertIsNone(self.bot.get_command("help"))
+    def test_hub_subcommands(self):
+        for name in ("hubchannel", "hubrole"):
+            self.assertEqual(sorted(self.bot.get_slash_command(name).children), ["get", "set", "unset"])
 
-    def test_prefix_from_config(self):
-        self.assertEqual(self.bot.command_prefix, self.cfg["discord"]["prefix"])
+    def test_commands_are_guild_only(self):
+        for command in self.bot.slash_commands:
+            self.assertEqual(command.body.contexts, disnake.InteractionContextTypes(guild=True), command.name)
+
+    def test_hub_commands_default_to_admins(self):
+        for name in ("hubchannel", "hubrole"):
+            permissions = self.bot.get_slash_command(name).default_member_permissions
+            self.assertEqual(permissions, disnake.Permissions(administrator=True))
 
     def test_registers_event_listeners(self):
         listeners = {name for cog in self.bot.cogs.values() for name, _ in cog.get_listeners()}

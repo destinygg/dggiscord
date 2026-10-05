@@ -1,8 +1,7 @@
 {
     "discord":{
         "token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "prefix":"!",
-        "nowplaying":["!subinfo","!sync","!subhelp"],
+        "nowplaying":["/sync"],
         "background_refresh_rate":240,
         "admins":[252869311545212928]
     },

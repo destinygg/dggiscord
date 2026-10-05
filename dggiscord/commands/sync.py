@@ -10,31 +10,31 @@ from subsync.rules import target_nick, can_modify_member
 logger = logging.getLogger(__name__)
 logger.info("loading...")
 
+GUILD_ONLY = disnake.InteractionContextTypes(guild=True)
 
-# https://discordpy.readthedocs.io/en/latest/api.html?highlight=discord%20guild#discord.Permissions
-def user_is_privledge(ctx, admins):
+
+# https://docs.disnake.dev/en/stable/api/permissions.html#disnake.Permissions
+def user_is_privledge(inter, admins):
     # allow bot owner
-    if ctx.message.author.id in admins:
+    if inter.author.id in admins:
         return True
 
     # allow server owner
-    if ctx.message.author.id == ctx.message.guild.owner_id:
+    if inter.author.id == inter.guild.owner_id:
         return True
 
     # allow server admins
-    permissions = ctx.message.channel.permissions_for(ctx.message.author)
-    if permissions.administrator:
-        return True
-    elif permissions.manage_guild:
-        return True
-    elif permissions.manage_channels:
-        return True
-    elif permissions.manage_roles:
-        return True
-    else:
+    permissions = inter.permissions
+    return permissions.administrator or permissions.manage_guild or permissions.manage_channels or permissions.manage_roles
+
+
+async def deny_unprivileged(inter, admins):
+    """Tell the user they can't run a privileged command. Returns True if they were denied."""
+    if user_is_privledge(inter, admins):
         return False
 
-    return False
+    await inter.send("Only server owners and users with Manage Roles, Manage Channels, or Manage Server can use this command.", ephemeral=True)
+    return True
 
 
 async def sync_username(member, profile, guild):
@@ -76,73 +76,72 @@ class SyncCommands(commands.Cog):
         self.admins = admins
         self.links = links
 
-    @commands.command()
-    async def syncother(self, ctx):
-        if user_is_privledge(ctx, self.admins) is False:
+    @commands.slash_command(contexts=GUILD_ONLY)
+    async def syncother(
+        self, inter, member: disnake.Member = commands.Param(description="The member to sync")
+    ):
+        """Sync another member's Dgg subscription and username."""
+        if await deny_unprivileged(inter, self.admins):
             return
 
         # Check if sync is disabled for this server
-        if not self.store.sync_enabled(ctx.message.guild.id):
-            await ctx.reply("Sync feature is currently disabled for this server.")
+        if not self.store.sync_enabled(inter.guild.id):
+            await inter.send("Sync feature is currently disabled for this server.", ephemeral=True)
             return
 
-        if ctx.message.mentions is None:
-            await ctx.reply("{0.message.author.mention} mention the users you wish to sync. Multiple mentions/users supported.".format(ctx))
+        # looking up the profile and editing the member can outlast the 3 second response window
+        await inter.response.defer()
+
+        settings = self.store.sync_settings(inter.guild.id)
+
+        profile = await self.member_sync.get_profile(member)
+        if profile is None:
+            await inter.send("{0.mention} your profile was not found. Link your Discord account at <{1[auth]}> and try again.".format(member, self.links))
             return
 
-        settings = self.store.sync_settings(ctx.message.guild.id)
+        results = []
 
-        for member in ctx.message.mentions:
-            profile = await self.member_sync.get_profile(member)
-            if profile is None:
-                await ctx.reply("{0.mention} your profile was not found. Link your Discord account at <{1[auth]}> and try again.".format(member, self.links))
-            else:
-                results = []
+        # Sync subscription if enabled
+        if settings["sync_subscription"]:
+            await self.member_sync.update_member(member)
+            results.append("subscription roles")
 
-                # Sync subscription if enabled
-                if settings["sync_subscription"]:
-                    await self.member_sync.update_member(member)
-                    results.append("subscription roles")
+        # Sync username if enabled
+        if settings["sync_username"]:
+            success, result = await sync_username(member, profile, inter.guild)
+            if success:
+                results.append(f"username to `{result}`")
 
-                # Sync username if enabled
-                if settings["sync_username"]:
-                    success, result = await sync_username(member, profile, ctx.message.guild)
-                    if success:
-                        results.append(f"username to `{result}`")
+        if results:
+            await inter.send("{0.mention} synced: {1}".format(member, ", ".join(results)))
+        else:
+            await inter.send("{0.mention} your profile is connected, but no sync options are enabled for this server.".format(member))
 
-                if results:
-                    await ctx.reply("{0.mention} synced: {1}".format(member, ", ".join(results)))
-                else:
-                    await ctx.reply("{0.mention} your profile is connected, but no sync options are enabled for this server.".format(member))
-
-    @commands.command(aliases=['sub','dgg','postcringelosesub'])
-    async def sync(self, ctx):
-        await ctx.trigger_typing()
-
-        # DM / No Guild
-        if ctx.message.guild is None:
-            await ctx.reply("{0.message.author.mention} sync is only supported within a server, sorry :(".format(ctx))
-            return
-
+    @commands.slash_command(contexts=GUILD_ONLY)
+    async def sync(self, inter):
+        """Sync your Dgg subscription and username."""
         # Check if sync is disabled for this server
-        if not self.store.sync_enabled(ctx.message.guild.id):
-            await ctx.reply("{0.message.author.mention} sync feature is currently disabled for this server.".format(ctx))
+        if not self.store.sync_enabled(inter.guild.id):
+            await inter.send("Sync feature is currently disabled for this server.", ephemeral=True)
             return
 
-        profile = await self.member_sync.get_profile(ctx.message.author)
+        # looking up the profile and editing the member can outlast the 3 second response window
+        await inter.response.defer()
+
+        profile = await self.member_sync.get_profile(inter.author)
 
         # no profile
         if profile is None:
-            await ctx.reply("{0.message.author.mention} your profile was not found. Link your Discord account at <{1[auth]}> and try again.".format(ctx, self.links))
+            await inter.send("Your profile was not found. Link your Discord account at <{0[auth]}> and try again.".format(self.links))
             return
 
-        settings = self.store.sync_settings(ctx.message.guild.id)
+        settings = self.store.sync_settings(inter.guild.id)
         results = []
         messages = []
 
         # Sync username if enabled
         if settings["sync_username"]:
-            success, result = await sync_username(ctx.message.author, profile, ctx.message.guild)
+            success, result = await sync_username(inter.author, profile, inter.guild)
             if success:
                 results.append(f"username synced to `{result}`")
             else:
@@ -158,7 +157,7 @@ class SyncCommands(commands.Cog):
                 messages.append("You only have a Twitch sub. To use your Twitch sub learn how at <{0[twitchint]}>".format(self.links))
             # dgg sub
             elif profile['subscription']['source'] == "destiny.gg":
-                await self.member_sync.update_member(ctx.message.author)
+                await self.member_sync.update_member(inter.author)
 
                 expires = time.strptime(profile['subscription']['end'], "%Y-%m-%dT%H:%M:%S+0000")
                 expires_formatted = time.strftime("%c", expires)
@@ -167,7 +166,7 @@ class SyncCommands(commands.Cog):
 
         # Build response
         nick = target_nick(profile) or 'Unknown'
-        response_parts = [f"{ctx.message.author.mention} your profile is connected to `{nick}`."]
+        response_parts = [f"Your profile is connected to `{nick}`."]
 
         if results:
             response_parts.append("**Synced:** " + ", ".join(results) + ".")
@@ -175,4 +174,4 @@ class SyncCommands(commands.Cog):
         if messages:
             response_parts.append("\n".join(messages))
 
-        await ctx.reply(" ".join(response_parts))
+        await inter.send(" ".join(response_parts))
