@@ -1,10 +1,8 @@
-from helpers.config import cfg
-from helpers.log import logging
-from helpers.dgg import api
-from helpers.database import store
-from subsync.rules import roles_to_add, roles_to_remove, index_members, target_nick, can_modify_member
-import discord.client as client
+import logging
+
 import disnake
+
+from subsync.rules import roles_to_add, roles_to_remove, index_members, target_nick, can_modify_member
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
@@ -38,32 +36,6 @@ logger.info("loading...")
     }
 }
 """
-
-# build a map of the server flair -> role mappings, requires: Discord.Guild
-# Uses guild.get_role (disnake in-memory cache, no HTTP). Skips rows whose role isn't
-# in the cache, but does NOT delete those rows: the cache can be transiently empty
-# after a gateway disconnect or while a guild is unavailable, and silently deleting
-# the mapping on a cache miss caused duplicate role creation.
-# flairs_to_roles -> cleanup_stale_flairs is the authoritative path for removing rows.
-def flair_map(server):
-    flairmap = {}
-    for role_id, flair_name in store.flair_mappings(server.id):
-        if server.get_role(role_id) is not None:
-            flairmap[role_id] = flair_name
-        else:
-            logger.warning(f"flair_map() role ID:{role_id} for flair '{flair_name}' not in cache for guild {server.id}, skipping for this call")
-
-    return flairmap
-
-# build a map of the role ID -> provider flair, requires: Discord.Guild
-def role_map(server):
-    fmap = flair_map(server)
-    rmap = {value: key for key, value in fmap.items()}
-    return rmap
-
-# get the user's account as it stands on DGG, requires: Discord.Member
-async def get_profile(member):
-    return await api.profile(member.id)
 
 # remove a role, requies: role(ID), Discord.Member
 async def remove_role(role, member):
@@ -142,79 +114,111 @@ async def add_user_roles(profile, member, rolemap):
         logger.info("add_user_roles() applying role ID:{0} to member ID:{1.id} on server ID:{1.guild.id}".format(role, member))
         await add_role(role, member)
 
-# the 1 line abstraction to call to update a user throughout the bot, requires: Discord.Member, optional: flair_map() and role_map()
-async def update_member(member, fmap=None, rmap=None, dgg_index=None):
-    if fmap is None:
-        fmap = flair_map(member.guild)
-    if rmap is None:
-        rmap = role_map(member.guild)
+class MemberSync:
+    """Syncs members' roles and nicknames with their DGG profiles."""
 
-    # poll DGG for the user if we don't have the subscriber index
-    if dgg_index is None:
-        logger.info(f'update_member() looking up {member.id} directly against API')
-        api = await get_profile(member)
-    else:
-    # return api result if in index, if not signal None and move on
+    def __init__(self, store, api):
+        """
+        Args:
+            store: helpers.store.Store
+            api: helpers.http.DggApi
+        """
+        self.store = store
+        self.api = api
+
+    # build a map of the server flair -> role mappings, requires: Discord.Guild
+    # Uses guild.get_role (disnake in-memory cache, no HTTP). Skips rows whose role isn't
+    # in the cache, but does NOT delete those rows: the cache can be transiently empty
+    # after a gateway disconnect or while a guild is unavailable, and silently deleting
+    # the mapping on a cache miss caused duplicate role creation.
+    # FlairTranslator.flairs_to_roles -> cleanup_stale_flairs is the authoritative path for removing rows.
+    def flair_map(self, server):
+        flairmap = {}
+        for role_id, flair_name in self.store.flair_mappings(server.id):
+            if server.get_role(role_id) is not None:
+                flairmap[role_id] = flair_name
+            else:
+                logger.warning(f"flair_map() role ID:{role_id} for flair '{flair_name}' not in cache for guild {server.id}, skipping for this call")
+
+        return flairmap
+
+    # build a map of the role ID -> provider flair, requires: Discord.Guild
+    def role_map(self, server):
+        fmap = self.flair_map(server)
+        rmap = {value: key for key, value in fmap.items()}
+        return rmap
+
+    # get the user's account as it stands on DGG, requires: Discord.Member
+    async def get_profile(self, member):
+        return await self.api.profile(member.id)
+
+    # the 1 line abstraction to call to update a user throughout the bot, requires: Discord.Member, optional: flair_map() and role_map()
+    async def update_member(self, member, fmap=None, rmap=None, dgg_index=None):
+        if fmap is None:
+            fmap = self.flair_map(member.guild)
+        if rmap is None:
+            rmap = self.role_map(member.guild)
+
+        # poll DGG for the user if we don't have the subscriber index
+        if dgg_index is None:
+            logger.info(f'update_member() looking up {member.id} directly against API')
+            profile = await self.get_profile(member)
+        else:
+            # return api result if in index, if not signal None and move on
+            profile = dgg_index.get(member.id)
+            if profile is not None:
+                logger.debug(f'update_member() {member.id} found in subscriber index')
+
+        if profile is not None:
+            await add_user_roles(profile, member, rmap)
+        await remove_user_roles(profile, member, fmap)
+
+    # get all accounts with discord from dgg, index the data and return a k/v store by Discord ID,
+    # or None if the API call failed
+    async def get_all_members_indexed(self):
+        members = await self.api.all_profiles()
+
+        index = index_members(members)
+        if index is None:
+            logger.error(f'get_all_members_indexed() API responded with unparsable result {members}')
+            return None
+
+        logger.info(f'get_all_members_indexed() Index completed with {len(index)} accounts from {len(members["data"])} results')
+        return index
+
+    # update member's username to match DGG profile, requires: Discord.Member, optional: dgg_index
+    async def update_member_username(self, member, dgg_index=None):
+        # Get profile from index or API
+        if dgg_index is None:
+            logger.info(f'update_member_username() looking up {member.id} directly against API')
+            profile = await self.get_profile(member)
+        else:
+            profile = dgg_index.get(member.id)
+            if profile is not None:
+                logger.debug(f'update_member_username() {member.id} found in index')
+
+        if profile is None:
+            return
+
+        dgg_nick = target_nick(profile)
+        if dgg_nick is None:
+            return
+
+        # Check if we can modify this member
+        if not can_modify_member(member.guild.me, member, member.guild.owner_id):
+            logger.debug(f"update_member_username() cannot modify member {member.id} in guild {member.guild.id}")
+            return
+
+        # Skip if nickname already matches
+        if member.nick == dgg_nick:
+            logger.debug(f"update_member_username() {member.id} nickname already matches '{dgg_nick}'")
+            return
+
         try:
-            api = dgg_index[member.id]
-            logger.debug(f'update_member() {member.id} found in subscriber index')
-        except KeyError:
-            api = None
-
-    if api is not None:
-        await add_user_roles(api, member, rmap)
-    await remove_user_roles(api, member, fmap)
-
-# get all accounts with discord from dgg, index the data and return a k/v store by Discord ID,
-# or None if the API call failed
-async def get_all_members_indexed():
-    members = await api.all_profiles()
-
-    index = index_members(members)
-    if index is None:
-        logger.error(f'get_all_members_indexed() API responded with unparsable result {members}')
-        return None
-
-    logger.info(f'get_all_members_indexed() Index completed with {len(index)} accounts from {len(members["data"])} results')
-    return index
-
-
-# update member's username to match DGG profile, requires: Discord.Member, optional: dgg_index
-async def update_member_username(member, dgg_index=None):
-    # Get profile from index or API
-    if dgg_index is None:
-        logger.info(f'update_member_username() looking up {member.id} directly against API')
-        api = await get_profile(member)
-    else:
-        try:
-            api = dgg_index[member.id]
-            logger.debug(f'update_member_username() {member.id} found in index')
-        except KeyError:
-            api = None
-
-    if api is None:
-        return
-
-    dgg_nick = target_nick(api)
-    if dgg_nick is None:
-        return
-
-    # Check if we can modify this member
-    bot_member = member.guild.get_member(client.bot.user.id)
-    if not can_modify_member(bot_member, member, member.guild.owner_id):
-        logger.debug(f"update_member_username() cannot modify member {member.id} in guild {member.guild.id}")
-        return
-
-    # Skip if nickname already matches
-    if member.nick == dgg_nick:
-        logger.debug(f"update_member_username() {member.id} nickname already matches '{dgg_nick}'")
-        return
-
-    try:
-        await member.edit(nick=dgg_nick)
-        logger.info(f"update_member_username() set nickname for {member.id} to '{dgg_nick}' in guild {member.guild.id}")
-        await add_verified_role(member)
-    except disnake.Forbidden:
-        logger.warning(f"update_member_username() forbidden to change nickname for {member.id} in guild {member.guild.id}")
-    except disnake.HTTPException as e:
-        logger.error(f"update_member_username() failed to change nickname for {member.id}: {e}")
+            await member.edit(nick=dgg_nick)
+            logger.info(f"update_member_username() set nickname for {member.id} to '{dgg_nick}' in guild {member.guild.id}")
+            await add_verified_role(member)
+        except disnake.Forbidden:
+            logger.warning(f"update_member_username() forbidden to change nickname for {member.id} in guild {member.guild.id}")
+        except disnake.HTTPException as e:
+            logger.error(f"update_member_username() failed to change nickname for {member.id}: {e}")

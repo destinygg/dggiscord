@@ -1,55 +1,80 @@
-from helpers.config import cfg
-from helpers.log import logging
-from helpers.database import store
-from subsync.sync import update_member, update_member_username, flair_map, role_map, get_all_members_indexed
-from subsync.translator import flairs_to_roles
-import discord.client as client
+import logging
 import time
+
+from disnake.ext import commands, tasks
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
 
 
-@client.tasks.loop(seconds=cfg['discord']['background_refresh_rate']*60)
-async def background_update_roles():
-    await client.bot.wait_until_ready()
-    logger.info("background_update_roles() starting background sync")
-    start = time.time()
+class BackgroundSync(commands.Cog):
+    """Periodically syncs every member of every server with sync enabled."""
 
-    dgg_subscriber_index = await get_all_members_indexed()
-    if dgg_subscriber_index is None:
-        # without the index, update_member() would query the API once per member
-        logger.error("background_update_roles() skipping this pass, unable to get the member index")
-        return
+    def __init__(self, bot, store, member_sync, translator, refresh_minutes):
+        """
+        Args:
+            bot: the disnake Bot
+            store: helpers.store.Store
+            member_sync: subsync.sync.MemberSync
+            translator: subsync.translator.FlairTranslator
+            refresh_minutes: minutes between syncs
+        """
+        self.bot = bot
+        self.store = store
+        self.member_sync = member_sync
+        self.translator = translator
+        self.background_update_roles.change_interval(minutes=refresh_minutes)
 
-    for guild in client.bot.guilds:
-        settings = store.sync_settings(guild.id)
+    async def cog_load(self):
+        self.background_update_roles.start()
 
-        # Check if any sync is enabled for this guild
-        if not settings["sync_subscription"] and not settings["sync_username"]:
-            logger.debug(f'background sync skipped for {guild.id} ({guild.name}) - disabled')
-            continue
+    def cog_unload(self):
+        self.background_update_roles.cancel()
 
-        logger.info(f'background sync running on {guild.id} ({guild.name}) - sub:{settings["sync_subscription"]} user:{settings["sync_username"]}')
+    @tasks.loop(minutes=240)
+    async def background_update_roles(self):
+        await self.sync_guilds(self.bot.guilds)
 
-        # refresh the roles if subscription sync is enabled
-        if settings["sync_subscription"]:
-            await flairs_to_roles(guild)
+    @background_update_roles.before_loop
+    async def before_background_update_roles(self):
+        await self.bot.wait_until_ready()
 
-        # build the maps once per server to reduce compute and db hit times
-        fmap = flair_map(guild)
-        rmap = role_map(guild)
+    async def sync_guilds(self, guilds):
+        logger.info("background_update_roles() starting background sync")
+        start = time.time()
 
-        for member in guild.members:
-            # Sync subscription roles if enabled
+        dgg_subscriber_index = await self.member_sync.get_all_members_indexed()
+        if dgg_subscriber_index is None:
+            # without the index, update_member() would query the API once per member
+            logger.error("background_update_roles() skipping this pass, unable to get the member index")
+            return
+
+        for guild in guilds:
+            settings = self.store.sync_settings(guild.id)
+
+            # Check if any sync is enabled for this guild
+            if not settings["sync_subscription"] and not settings["sync_username"]:
+                logger.debug(f'background sync skipped for {guild.id} ({guild.name}) - disabled')
+                continue
+
+            logger.info(f'background sync running on {guild.id} ({guild.name}) - sub:{settings["sync_subscription"]} user:{settings["sync_username"]}')
+
+            # refresh the roles if subscription sync is enabled
             if settings["sync_subscription"]:
-                await update_member(member, fmap, rmap, dgg_subscriber_index)
+                await self.translator.flairs_to_roles(guild)
 
-            # Sync username if enabled
-            if settings["sync_username"]:
-                await update_member_username(member, dgg_subscriber_index)
+            # build the maps once per server to reduce compute and db hit times
+            fmap = self.member_sync.flair_map(guild)
+            rmap = self.member_sync.role_map(guild)
 
-    exec_time = int(time.time() - start)
-    logger.info("background_update_roles() background sync completed. Took {} seconds".format(exec_time))
+            for member in guild.members:
+                # Sync subscription roles if enabled
+                if settings["sync_subscription"]:
+                    await self.member_sync.update_member(member, fmap, rmap, dgg_subscriber_index)
 
-background_update_roles.start()
+                # Sync username if enabled
+                if settings["sync_username"]:
+                    await self.member_sync.update_member_username(member, dgg_subscriber_index)
+
+        exec_time = int(time.time() - start)
+        logger.info("background_update_roles() background sync completed. Took {} seconds".format(exec_time))

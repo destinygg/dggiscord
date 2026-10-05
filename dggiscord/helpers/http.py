@@ -2,7 +2,7 @@
 HTTP access to the destiny.gg APIs.
 
 Neither get_json nor DggApi depends on the config, so both can be tested
-directly; helpers.dgg builds the configured instances the bot uses.
+directly; app.build_bot creates the configured instances the bot uses.
 """
 import logging
 

@@ -6,8 +6,6 @@ import sys
 logger = logging.getLogger(__name__)
 logger.info("Loading {}...".format(__name__))
 
-cfg = {}  # type: dict
-
 # verifies that the config exists, and is valid JSON
 def verify_cfg(cfgfile):
     if os.path.isfile(cfgfile) is False:
@@ -25,15 +23,13 @@ def verify_cfg(cfgfile):
     return False
 
 
-# loads and validates the config file
+# loads and validates the config file, returning it as a dict
 def load_config(cfgfile):
-    global cfg
     if verify_cfg(cfgfile) is False:
         logger.critical("Unable to load config. verify_cfg() returned False.")
-        sys.exit()
+        sys.exit(1)
 
     with open(cfgfile, "r") as cfgReadFile:
-        cfg.update(json.load(cfgReadFile))
-        return True
+        return json.load(cfgReadFile)
 
 
