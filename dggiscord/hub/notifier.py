@@ -82,6 +82,11 @@ def parse_date(value):
         return None
 
 
+def with_role(content, role_id):
+    """Prefix a message with a mention of the server's notify role, if it has one."""
+    return f"<@&{role_id}> {content}" if role_id else content
+
+
 def build_live_message(live, bigscreen_link):
     """Build the (content, embed) announcing that the stream went live."""
     title = next((s["status_text"] for _, s in live if s.get("status_text")), None)
@@ -162,9 +167,9 @@ class HubNotifier:
     def _set_state(self, key, value):
         self.con.execute("REPLACE INTO hubstate (key, value) VALUES (?, ?)", (key, value))
 
-    def hub_channel_ids(self):
-        rows = self.con.execute("SELECT hubchannel FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
-        return [row[0] for row in rows]
+    def hub_channels(self):
+        """Return (channel_id, notify_role_id) for every hub channel; the role may be None."""
+        return self.con.execute("SELECT hubchannel, notifyrole FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
 
     def live_message_id(self, channel_id):
         row = self.con.execute("SELECT message_id FROM hublivemessages WHERE channel_id=?", (channel_id,)).fetchone()
@@ -279,9 +284,9 @@ class HubNotifier:
     async def post(self, content, embed):
         """Post a message to every hub channel, returning {channel_id: message_id}."""
         posted = {}
-        for channel_id in self.hub_channel_ids():
+        for channel_id, role_id in self.hub_channels():
             try:
-                posted[channel_id] = await self.send(channel_id, content, embed)
+                posted[channel_id] = await self.send(channel_id, with_role(content, role_id), embed)
             except Exception as e:
                 logger.error(f"post() failed to post to hub channel {channel_id}: {e}")
         return posted
@@ -298,12 +303,13 @@ class HubNotifier:
 
     async def edit_live(self, content, embed):
         """Update the current go-live announcement in every hub channel that has one."""
-        for channel_id in self.hub_channel_ids():
+        for channel_id, role_id in self.hub_channels():
             message_id = self.live_message_id(channel_id)
             if message_id is None:
                 continue
             try:
-                await self.edit(channel_id, message_id, content, embed)
+                # editing a message never pings, so keeping the mention is harmless
+                await self.edit(channel_id, message_id, with_role(content, role_id), embed)
             except Exception as e:
                 logger.error(f"edit_live() failed to edit message {message_id} in hub channel {channel_id}: {e}")
                 self.con.execute("DELETE FROM hublivemessages WHERE channel_id=?", (channel_id,))

@@ -120,8 +120,8 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("Unknown Message")
         self.edited.append((channel_id, message_id, content, embed))
 
-    def set_hub_channel(self, server_id, channel_id):
-        self.con.execute("REPLACE INTO hubchannels VALUES (?, ?)", (server_id, channel_id))
+    def set_hub_channel(self, server_id, channel_id, role_id=None):
+        self.con.execute("REPLACE INTO hubchannels VALUES (?, ?, ?)", (server_id, channel_id, role_id))
         self.con.commit()
 
     def go_live(self, **overrides):
@@ -398,6 +398,40 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIsNone(self.sent[0][2].timestamp)
 
+    # --- notify role ---
+
+    async def test_notify_role_is_mentioned_in_go_live_posts(self):
+        self.set_hub_channel(1, 100, role_id=555)
+        self.set_hub_channel(2, 200)
+        await self.notifier.poll()
+
+        self.go_live()
+        await self.notifier.poll()
+
+        contents = {channel: content for channel, content, _ in self.sent}
+        self.assertEqual(contents[100], "<@&555> **Destiny is live!** https://www.destiny.gg/bigscreen")
+        self.assertEqual(contents[200], "**Destiny is live!** https://www.destiny.gg/bigscreen")
+
+    async def test_notify_role_is_mentioned_in_video_posts(self):
+        self.set_hub_channel(1, 100, role_id=555)
+        await self.notifier.poll()
+
+        self.responses[VIDEOS_URL] = videos_response(video("a", title="My video"))
+        await self.notifier.poll()
+
+        self.assertEqual(self.sent[0][1], "<@&555> **New video:** My video https://www.youtube.com/watch?v=a")
+
+    async def test_notify_role_is_kept_when_the_go_live_post_is_edited(self):
+        self.set_hub_channel(1, 100, role_id=555)
+        await self.notifier.poll()
+        self.go_live()
+        await self.notifier.poll()
+
+        self.responses[STREAM_URL] = streams_response(stream("twitch", id="destiny"), stream("youtube", id="abc123"))
+        await self.notifier.poll()
+
+        self.assertTrue(self.edited[0][2].startswith("<@&555> "))
+
     # --- failures and channel handling ---
 
     async def test_failed_fetch_leaves_state_alone(self):
@@ -507,8 +541,14 @@ class HubMigrationTest(unittest.TestCase):
         try:
             migrator = Migrator(db_path)
             migrator.upgrade()
-            migrator.downgrade()
 
+            migrator.downgrade("004")
+            con = sqlite3.connect(db_path)
+            columns = {row[1] for row in con.execute("PRAGMA table_info(hubchannels)")}
+            con.close()
+            self.assertNotIn("notifyrole", columns)
+
+            migrator.downgrade("003")
             con = sqlite3.connect(db_path)
             tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             con.close()
