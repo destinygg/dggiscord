@@ -17,6 +17,7 @@ import subsync.sync
 import discord.background
 import discord.memberstate
 import discord.serverstate
+import discord.hubnotify
 
 import commands.sync
 import commands.syncsettings
