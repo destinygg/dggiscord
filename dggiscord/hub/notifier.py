@@ -1,0 +1,326 @@
+"""
+Posts stream go-live and new video announcements to each server's hub channel.
+
+The notifier polls the website's public broadcast info endpoints and keeps the
+last observed state in the database. It has no dependency on the bot client,
+so it can be driven by a test with fake fetch/send functions.
+"""
+import json
+import logging
+import time
+from datetime import datetime
+
+import disnake
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_SETTINGS = {
+    "stream_endpoint": "https://www.destiny.gg/api/info/stream",
+    "videos_endpoint": "https://www.destiny.gg/api/info/videos",
+    "bigscreen_link": "https://www.destiny.gg/bigscreen",
+    # seconds between polls
+    "poll_interval": 60,
+    # minutes the stream must have been offline before going live is announced
+    # again, so a dropped connection doesn't post a second notification
+    "live_cooldown": 30,
+    # hours; new videos published longer ago than this are recorded but not
+    # posted, e.g. when the featured uploads source is switched
+    "video_max_age": 24,
+}
+
+# display order and names for the platforms in /api/info/stream
+PLATFORM_NAMES = {
+    "twitch": "Twitch",
+    "youtube": "YouTube",
+    "kick": "Kick",
+    "rumble": "Rumble",
+    "facebook": "Facebook",
+}
+
+EMBED_COLOR = 0x1E90FF
+
+
+def load_settings(cfg):
+    """Merge the optional dgg.hub config block over the defaults."""
+    settings = dict(DEFAULT_SETTINGS)
+    settings.update(cfg.get("dgg", {}).get("hub", {}))
+    return settings
+
+
+def platform_url(platform, stream_id):
+    """Build a watch link for a live platform, or None if there isn't one."""
+    if not stream_id:
+        return None
+    if platform == "twitch":
+        return f"https://www.twitch.tv/{stream_id}"
+    if platform == "youtube":
+        return f"https://www.youtube.com/watch?v={stream_id}"
+    if platform == "kick":
+        return f"https://kick.com/{stream_id}"
+    if platform == "facebook":
+        # the id is the permalink path, e.g. /107941938752517/videos/612064270574857
+        return f"https://www.facebook.com{stream_id}"
+    # rumble's id is an internal video ID, not something that can be linked
+    return None
+
+
+def live_streams(streams):
+    """Return the live entries of an /api/info/stream map, in display order."""
+    ordered = sorted(
+        (streams or {}).items(),
+        key=lambda item: list(PLATFORM_NAMES).index(item[0]) if item[0] in PLATFORM_NAMES else len(PLATFORM_NAMES),
+    )
+    return [(platform, s) for platform, s in ordered if s and s.get("live")]
+
+
+def parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def with_role(content, role_id):
+    """Prefix a message with a mention of the server's notify role, if it has one."""
+    return f"<@&{role_id}> {content}" if role_id else content
+
+
+def build_live_message(live, bigscreen_link):
+    """Build the (content, embed) announcing that the stream went live."""
+    title = next((s["status_text"] for _, s in live if s.get("status_text")), None)
+    game = next((s["game"] for _, s in live if s.get("game")), None)
+    preview = next((s["preview"] for _, s in live if s.get("preview")), None)
+
+    embed = disnake.Embed(
+        title=title or "Destiny is live!",
+        url=bigscreen_link,
+        color=EMBED_COLOR,
+    )
+    embed.set_author(name="Destiny is live!")
+
+    platforms = []
+    for platform, s in live:
+        name = PLATFORM_NAMES.get(platform, platform.capitalize())
+        url = platform_url(platform, s.get("id"))
+        platforms.append(f"[{name}]({url})" if url else name)
+    platforms.append(f"[destiny.gg]({bigscreen_link})")
+    embed.add_field(name="Watch on", value=" · ".join(platforms), inline=False)
+
+    if game:
+        embed.add_field(name="Category", value=game, inline=True)
+    if preview:
+        embed.set_image(url=preview)
+
+    content = f"**Destiny is live!** {bigscreen_link}"
+    return content, embed
+
+
+def build_video_message(video):
+    """Build the (content, embed) announcing a new video upload."""
+    embed = disnake.Embed(
+        title=video.get("title") or "New video",
+        url=video.get("url") or None,
+        color=EMBED_COLOR,
+    )
+    embed.set_author(name="New video")
+
+    thumbnail = video.get("highThumbnailUrl") or video.get("mediumThumbnailUrl")
+    if thumbnail:
+        embed.set_image(url=thumbnail)
+
+    published = parse_date(video.get("publishDate"))
+    if published:
+        embed.timestamp = published
+
+    content = f"**New video:** {video.get('title', '')} {video.get('url', '')}".strip()
+    return content, embed
+
+
+class HubNotifier:
+    def __init__(self, con, fetch_json, send, edit, settings=None, clock=time.time):
+        """
+        Args:
+            con: sqlite3 connection with the hub tables migrated
+            fetch_json: async function(url) -> parsed JSON or None on failure
+            send: async function(channel_id, content, embed) -> message ID;
+                raises on failure
+            edit: async function(channel_id, message_id, content, embed);
+                raises on failure
+            settings: dict as returned by load_settings()
+            clock: function returning the current unix time
+        """
+        self.con = con
+        self.fetch_json = fetch_json
+        self.send = send
+        self.edit = edit
+        self.settings = settings or dict(DEFAULT_SETTINGS)
+        self.clock = clock
+
+    # --- persisted state ---
+
+    def _get_state(self, key):
+        row = self.con.execute("SELECT value FROM hubstate WHERE key=?", (key,)).fetchone()
+        return None if row is None else row[0]
+
+    def _set_state(self, key, value):
+        self.con.execute("REPLACE INTO hubstate (key, value) VALUES (?, ?)", (key, value))
+
+    def hub_channels(self):
+        """Return (channel_id, notify_role_id) for every hub channel; the role may be None."""
+        return self.con.execute("SELECT hubchannel, notifyrole FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
+
+    def live_message_id(self, channel_id):
+        row = self.con.execute("SELECT message_id FROM hublivemessages WHERE channel_id=?", (channel_id,)).fetchone()
+        return None if row is None else row[0]
+
+    # --- change detection ---
+
+    def check_live(self, streams):
+        """
+        Record the current live status and decide what to do about it.
+
+        Returns ("post", live) when the stream just went live and should be
+        announced, ("edit", live) when the platforms in the current stream's
+        announcement have changed, e.g. YouTube starting after Kick, or None.
+
+        The first observation only seeds the state, so deploying or restarting
+        the bot mid-stream doesn't announce a stream that's already running.
+        """
+        now = self.clock()
+        live = live_streams(streams)
+        # the platforms and stream IDs the announcement links to
+        links = [[platform, s.get("id")] for platform, s in live]
+
+        previous = self._get_state("live_platforms")
+        last_live_at = self._get_state("last_live_at")
+        posted = self._get_state("posted_streams")
+
+        self._set_state("live_platforms", json.dumps([platform for platform, _ in live]))
+        if live:
+            self._set_state("last_live_at", str(now))
+        self.con.commit()
+
+        # leave the last announcement alone once everything goes offline, so
+        # it can still be updated if the stream comes back within the cooldown
+        if previous is None or not live:
+            return None
+
+        if not json.loads(previous):
+            cooldown = self.settings["live_cooldown"] * 60
+            if last_live_at is None or now - float(last_live_at) >= cooldown:
+                self._set_state("posted_streams", json.dumps(links))
+                self.con.commit()
+                return ("post", live)
+            logger.info("check_live() stream came back within the cooldown, not announcing")
+
+        if posted is not None and json.loads(posted) != links:
+            self._set_state("posted_streams", json.dumps(links))
+            self.con.commit()
+            return ("edit", live)
+
+        return None
+
+    def check_videos(self, videos):
+        """
+        Record the given videos as seen and return the ones that are new and
+        should be announced, oldest first.
+
+        The first observation only seeds the seen list, so the current uploads
+        aren't all posted when the feature is first deployed.
+        """
+        videos = [v for v in (videos or []) if v.get("id")]
+        seen = {row[0] for row in self.con.execute("SELECT video_id FROM hubseenvideos")}
+        initialized = self._get_state("videos_initialized") is not None
+
+        new = [v for v in videos if v["id"] not in seen]
+        self.con.executemany("INSERT OR IGNORE INTO hubseenvideos (video_id) VALUES (?)", [(v["id"],) for v in new])
+        self._set_state("videos_initialized", "1")
+        self.con.commit()
+
+        if not initialized:
+            return []
+
+        max_age = self.settings["video_max_age"] * 3600
+        now = self.clock()
+        announce = []
+        for video in new:
+            published = parse_date(video.get("publishDate"))
+            if published and now - published.timestamp() > max_age:
+                logger.info(f'check_videos() not announcing {video["id"]}, published {published.isoformat()}')
+                continue
+            announce.append(video)
+
+        # the API lists the most recent upload first
+        announce.reverse()
+        return announce
+
+    # --- polling ---
+
+    async def poll(self):
+        """Fetch the current state and post anything new to every hub channel."""
+        stream_info = await self.fetch_json(self.settings["stream_endpoint"])
+        streams = _unwrap(stream_info, "streams")
+        if streams is not None:
+            result = self.check_live(streams)
+            if result is not None:
+                action, live = result
+                message = build_live_message(live, self.settings["bigscreen_link"])
+                if action == "post":
+                    await self.post_live(*message)
+                else:
+                    await self.edit_live(*message)
+        else:
+            logger.warning("poll() unable to get stream info, skipping live check")
+
+        videos = _unwrap(await self.fetch_json(self.settings["videos_endpoint"]))
+        if isinstance(videos, list):
+            for video in self.check_videos(videos):
+                await self.post(*build_video_message(video))
+        else:
+            logger.warning("poll() unable to get videos, skipping video check")
+
+    async def post(self, content, embed):
+        """Post a message to every hub channel, returning {channel_id: message_id}."""
+        posted = {}
+        for channel_id, role_id in self.hub_channels():
+            try:
+                posted[channel_id] = await self.send(channel_id, with_role(content, role_id), embed)
+            except Exception as e:
+                logger.error(f"post() failed to post to hub channel {channel_id}: {e}")
+        return posted
+
+    async def post_live(self, content, embed):
+        """Post a go-live announcement and remember each message so it can be edited."""
+        posted = await self.post(content, embed)
+        self.con.execute("DELETE FROM hublivemessages")
+        self.con.executemany(
+            "INSERT INTO hublivemessages (channel_id, message_id) VALUES (?, ?)",
+            [(channel_id, message_id) for channel_id, message_id in posted.items() if message_id is not None],
+        )
+        self.con.commit()
+
+    async def edit_live(self, content, embed):
+        """Update the current go-live announcement in every hub channel that has one."""
+        for channel_id, role_id in self.hub_channels():
+            message_id = self.live_message_id(channel_id)
+            if message_id is None:
+                continue
+            try:
+                # editing a message never pings, so keeping the mention is harmless
+                await self.edit(channel_id, message_id, with_role(content, role_id), embed)
+            except Exception as e:
+                logger.error(f"edit_live() failed to edit message {message_id} in hub channel {channel_id}: {e}")
+                self.con.execute("DELETE FROM hublivemessages WHERE channel_id=?", (channel_id,))
+                self.con.commit()
+
+
+def _unwrap(response, key=None):
+    """Pull the data out of a website JsonResponse ({success, data, ...})."""
+    if not isinstance(response, dict) or not response.get("success"):
+        return None
+    data = response.get("data")
+    if key is None:
+        return data
+    return data.get(key) if isinstance(data, dict) else None

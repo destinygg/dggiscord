@@ -24,7 +24,15 @@
             "profile":"https://www.destiny.gg/profile",
             "subscribe":"https://www.destiny.gg/subscribe",
             "twitchint":"https://support.discordapp.com/hc/en-us/articles/212112068-Twitch-Integration-FAQ"
-    }
+    },
+       "hub":{
+            "stream_endpoint":"https://www.destiny.gg/api/info/stream",
+            "videos_endpoint":"https://www.destiny.gg/api/info/videos",
+            "bigscreen_link":"https://www.destiny.gg/bigscreen",
+            "poll_interval":60,
+            "live_cooldown":30,
+            "video_max_age":24
+       }
     },
 
     "db":"cfg/dggiscord.sqlite"

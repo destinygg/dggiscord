@@ -7,8 +7,26 @@
 | !sync                                                            | Sync your Dgg subscription and/or username              | All Users             |
 | !syncother @Mention                                              | Sync the mentioned user's Dgg subscription and username | Privileged Users Only |
 | !sync-settings [{enable\|disable} {subscription\|username\|all}] | View or change sync settings                            | Privileged Users Only |
+| !hubchannel {set\|get\|unset}                                     | Set, show, or remove the hub channel for notifications  | Server Admins Only    |
+| !hubrole {set <role>\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts    | Server Admins Only    |
 
 > Note: A privileged user is the server owner, the bot owner, or a user with one of the following permissions: _Manage Roles_, _Manage Channels_, _Manage Server_, _Administrator_.
+
+## Hub Channel Notifications
+
+Run `!hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `!hubchannel unset` turns notifications off.
+
+`!hubrole set <role>` makes every hub post mention a role, given by name, ID, or mention. Use the name or ID to avoid pinging the role while setting it. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `!hubrole unset` removes it.
+
+The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints and timing (see `config.example.json`):
+
+| Setting         | Default | Description                                                                         |
+| --------------- | ------- | ----------------------------------------------------------------------------------- |
+| `poll_interval` | `60`    | Seconds between polls                                                               |
+| `live_cooldown` | `30`    | Minutes the stream must be offline before going live is announced again             |
+| `video_max_age` | `24`    | Hours; new videos published longer ago than this are skipped (e.g. on a source switch) |
+
+When the bot starts with no saved state, it records the current stream status and videos without posting them.
 
 ## Creating a Bot User
 
@@ -52,6 +70,13 @@ python3 ./dggiscord/app.py [--config <alternative location>]
 ## Updatin' It
 
 docker-compose up -d --build
+
+## Tests
+
+```
+pip install -r requirements.txt
+python -m unittest discover -s tests -t .
+```
 
 ## Database Migrations
 
