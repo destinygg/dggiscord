@@ -134,18 +134,22 @@ def build_video_message(video):
 
 
 class HubNotifier:
-    def __init__(self, con, fetch_json, send, settings=None, clock=time.time):
+    def __init__(self, con, fetch_json, send, edit, settings=None, clock=time.time):
         """
         Args:
             con: sqlite3 connection with the hub tables migrated
             fetch_json: async function(url) -> parsed JSON or None on failure
-            send: async function(channel_id, content, embed); raises on failure
+            send: async function(channel_id, content, embed) -> message ID;
+                raises on failure
+            edit: async function(channel_id, message_id, content, embed);
+                raises on failure
             settings: dict as returned by load_settings()
             clock: function returning the current unix time
         """
         self.con = con
         self.fetch_json = fetch_json
         self.send = send
+        self.edit = edit
         self.settings = settings or dict(DEFAULT_SETTINGS)
         self.clock = clock
 
@@ -162,36 +166,56 @@ class HubNotifier:
         rows = self.con.execute("SELECT hubchannel FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
         return [row[0] for row in rows]
 
+    def live_message_id(self, channel_id):
+        row = self.con.execute("SELECT message_id FROM hublivemessages WHERE channel_id=?", (channel_id,)).fetchone()
+        return None if row is None else row[0]
+
     # --- change detection ---
 
     def check_live(self, streams):
         """
-        Record the current live status and return the live streams if the
-        stream just went live and should be announced, else None.
+        Record the current live status and decide what to do about it.
+
+        Returns ("post", live) when the stream just went live and should be
+        announced, ("edit", live) when the platforms in the current stream's
+        announcement have changed, e.g. YouTube starting after Kick, or None.
 
         The first observation only seeds the state, so deploying or restarting
         the bot mid-stream doesn't announce a stream that's already running.
         """
         now = self.clock()
         live = live_streams(streams)
+        # the platforms and stream IDs the announcement links to
+        links = [[platform, s.get("id")] for platform, s in live]
 
         previous = self._get_state("live_platforms")
         last_live_at = self._get_state("last_live_at")
+        posted = self._get_state("posted_streams")
 
         self._set_state("live_platforms", json.dumps([platform for platform, _ in live]))
         if live:
             self._set_state("last_live_at", str(now))
         self.con.commit()
 
-        if previous is None or json.loads(previous) or not live:
+        # leave the last announcement alone once everything goes offline, so
+        # it can still be updated if the stream comes back within the cooldown
+        if previous is None or not live:
             return None
 
-        cooldown = self.settings["live_cooldown"] * 60
-        if last_live_at is not None and now - float(last_live_at) < cooldown:
+        if not json.loads(previous):
+            cooldown = self.settings["live_cooldown"] * 60
+            if last_live_at is None or now - float(last_live_at) >= cooldown:
+                self._set_state("posted_streams", json.dumps(links))
+                self.con.commit()
+                return ("post", live)
             logger.info("check_live() stream came back within the cooldown, not announcing")
-            return None
 
-        return live
+        if posted is not None and json.loads(posted) != links:
+            self._set_state("posted_streams", json.dumps(links))
+            self.con.commit()
+            return ("edit", live)
+
+        return None
 
     def check_videos(self, videos):
         """
@@ -231,36 +255,59 @@ class HubNotifier:
 
     async def poll(self):
         """Fetch the current state and post anything new to every hub channel."""
-        messages = []
-
         stream_info = await self.fetch_json(self.settings["stream_endpoint"])
         streams = _unwrap(stream_info, "streams")
         if streams is not None:
-            live = self.check_live(streams)
-            if live:
-                messages.append(build_live_message(live, self.settings["bigscreen_link"]))
+            result = self.check_live(streams)
+            if result is not None:
+                action, live = result
+                message = build_live_message(live, self.settings["bigscreen_link"])
+                if action == "post":
+                    await self.post_live(*message)
+                else:
+                    await self.edit_live(*message)
         else:
             logger.warning("poll() unable to get stream info, skipping live check")
 
         videos = _unwrap(await self.fetch_json(self.settings["videos_endpoint"]))
         if isinstance(videos, list):
             for video in self.check_videos(videos):
-                messages.append(build_video_message(video))
+                await self.post(*build_video_message(video))
         else:
             logger.warning("poll() unable to get videos, skipping video check")
 
-        if not messages:
-            return messages
-
+    async def post(self, content, embed):
+        """Post a message to every hub channel, returning {channel_id: message_id}."""
+        posted = {}
         for channel_id in self.hub_channel_ids():
-            for content, embed in messages:
-                try:
-                    await self.send(channel_id, content, embed)
-                except Exception as e:
-                    logger.error(f"poll() failed to post to hub channel {channel_id}: {e}")
-                    break
+            try:
+                posted[channel_id] = await self.send(channel_id, content, embed)
+            except Exception as e:
+                logger.error(f"post() failed to post to hub channel {channel_id}: {e}")
+        return posted
 
-        return messages
+    async def post_live(self, content, embed):
+        """Post a go-live announcement and remember each message so it can be edited."""
+        posted = await self.post(content, embed)
+        self.con.execute("DELETE FROM hublivemessages")
+        self.con.executemany(
+            "INSERT INTO hublivemessages (channel_id, message_id) VALUES (?, ?)",
+            [(channel_id, message_id) for channel_id, message_id in posted.items() if message_id is not None],
+        )
+        self.con.commit()
+
+    async def edit_live(self, content, embed):
+        """Update the current go-live announcement in every hub channel that has one."""
+        for channel_id in self.hub_channel_ids():
+            message_id = self.live_message_id(channel_id)
+            if message_id is None:
+                continue
+            try:
+                await self.edit(channel_id, message_id, content, embed)
+            except Exception as e:
+                logger.error(f"edit_live() failed to edit message {message_id} in hub channel {channel_id}: {e}")
+                self.con.execute("DELETE FROM hublivemessages WHERE channel_id=?", (channel_id,))
+                self.con.commit()
 
 
 def _unwrap(response, key=None):

@@ -11,14 +11,23 @@ logger.info("loading...")
 settings = load_settings(cfg)
 
 
-async def send_to_channel(channel_id, content, embed):
+def get_channel(channel_id):
     channel = client.bot.get_channel(channel_id)
     if channel is None:
         raise LookupError(f"channel {channel_id} not found")
-    await channel.send(content=content, embed=embed)
+    return channel
 
 
-notifier = HubNotifier(con, get_json, send_to_channel, settings)
+async def send_to_channel(channel_id, content, embed):
+    message = await get_channel(channel_id).send(content=content, embed=embed)
+    return message.id
+
+
+async def edit_message(channel_id, message_id, content, embed):
+    await get_channel(channel_id).get_partial_message(message_id).edit(content=content, embed=embed)
+
+
+notifier = HubNotifier(con, get_json, send_to_channel, edit_message, settings)
 
 
 @client.tasks.loop(seconds=settings['poll_interval'])

@@ -95,9 +95,11 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
 
         self.responses = {STREAM_URL: OFFLINE, VIDEOS_URL: videos_response()}
         self.sent = []
+        self.edited = []
+        self.deleted_messages = set()
         self.failing_channels = set()
         self.clock = FakeClock()
-        self.notifier = HubNotifier(self.con, self.fetch_json, self.send, dict(DEFAULT_SETTINGS), self.clock)
+        self.notifier = HubNotifier(self.con, self.fetch_json, self.send, self.edit, dict(DEFAULT_SETTINGS), self.clock)
 
     def tearDown(self):
         self.con.close()
@@ -110,6 +112,13 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
         if channel_id in self.failing_channels:
             raise RuntimeError("Missing Permissions")
         self.sent.append((channel_id, content, embed))
+        # message IDs are distinct across channels so edits can be checked
+        return 1000 + len(self.sent)
+
+    async def edit(self, channel_id, message_id, content, embed):
+        if message_id in self.deleted_messages:
+            raise RuntimeError("Unknown Message")
+        self.edited.append((channel_id, message_id, content, embed))
 
     def set_hub_channel(self, server_id, channel_id):
         self.con.execute("REPLACE INTO hubchannels VALUES (?, ?)", (server_id, channel_id))
@@ -156,19 +165,130 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(self.sent), 1)
 
-    async def test_another_platform_joining_mid_stream_is_not_posted(self):
+    def go_live_on(self, *entries):
+        self.responses[STREAM_URL] = streams_response(*[stream(platform, id=stream_id) for platform, stream_id in entries])
+
+    def watch_on(self, embed):
+        return next(field.value for field in embed.fields if field.name == "Watch on")
+
+    async def start_stream_on_kick(self):
         self.set_hub_channel(1, 100)
+        self.set_hub_channel(2, 200)
+        await self.notifier.poll()
+        self.go_live_on(("kick", "destiny"))
         await self.notifier.poll()
 
-        self.go_live()
-        await self.notifier.poll()
-        self.responses[STREAM_URL] = streams_response(
-            stream("twitch", id="destiny"),
-            stream("youtube", id="abc123"),
-        )
+    async def test_another_platform_joining_mid_stream_edits_the_announcement(self):
+        await self.start_stream_on_kick()
+
+        self.clock.advance(10)
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
         await self.notifier.poll()
 
-        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual([(channel, message) for channel, message, _, _ in self.edited], [(100, 1001), (200, 1002)])
+        self.assertIn("[YouTube](https://www.youtube.com/watch?v=abc123)", self.watch_on(self.edited[0][3]))
+        self.assertIn("[Kick](https://kick.com/destiny)", self.watch_on(self.edited[0][3]))
+
+    async def test_unchanged_platforms_do_not_edit_the_announcement(self):
+        await self.start_stream_on_kick()
+
+        for _ in range(3):
+            self.clock.advance(1)
+            await self.notifier.poll()
+
+        self.assertEqual(self.edited, [])
+
+    async def test_platform_ending_mid_stream_edits_the_announcement(self):
+        await self.start_stream_on_kick()
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.go_live_on(("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.assertEqual(len(self.edited), 4)
+        self.assertNotIn("Kick", self.watch_on(self.edited[-1][3]))
+
+    async def test_new_stream_id_edits_the_announcement(self):
+        await self.start_stream_on_kick()
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+
+        # YouTube restarts the broadcast with a new video ID
+        self.go_live_on(("kick", "destiny"), ("youtube", "def456"))
+        await self.notifier.poll()
+
+        self.assertIn("watch?v=def456", self.watch_on(self.edited[-1][3]))
+
+    async def test_going_offline_does_not_edit_the_announcement(self):
+        await self.start_stream_on_kick()
+
+        self.go_offline()
+        await self.notifier.poll()
+
+        self.assertEqual(self.edited, [])
+
+    async def test_platform_starting_after_a_reconnect_edits_the_announcement(self):
+        await self.start_stream_on_kick()
+
+        self.go_offline()
+        self.clock.advance(5)
+        await self.notifier.poll()
+        self.go_live_on(("youtube", "abc123"))
+        self.clock.advance(5)
+        await self.notifier.poll()
+
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(self.edited), 2)
+        self.assertIn("YouTube", self.watch_on(self.edited[0][3]))
+
+    async def test_new_stream_edits_its_own_announcement(self):
+        await self.start_stream_on_kick()
+        self.go_offline()
+        self.clock.advance(DEFAULT_SETTINGS["live_cooldown"] + 1)
+        await self.notifier.poll()
+
+        self.go_live_on(("kick", "destiny"))
+        await self.notifier.poll()
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.assertEqual(len(self.sent), 4)
+        self.assertEqual([message for _, message, _, _ in self.edited], [1003, 1004])
+
+    async def test_channel_without_an_announcement_is_not_edited_or_posted(self):
+        await self.start_stream_on_kick()
+        self.set_hub_channel(3, 300)
+
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.assertEqual(len(self.sent), 2)
+        self.assertNotIn(300, [channel for channel, _, _, _ in self.edited])
+
+    async def test_deleted_announcement_is_forgotten(self):
+        await self.start_stream_on_kick()
+        self.deleted_messages.add(1001)
+
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+        self.deleted_messages.clear()
+        self.go_live_on(("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.assertEqual([channel for channel, _, _, _ in self.edited], [200, 200])
+
+    async def test_seeding_mid_stream_does_not_edit(self):
+        self.set_hub_channel(1, 100)
+        self.go_live_on(("kick", "destiny"))
+        await self.notifier.poll()
+
+        self.go_live_on(("kick", "destiny"), ("youtube", "abc123"))
+        await self.notifier.poll()
+
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.edited, [])
 
     async def test_reconnecting_within_the_cooldown_is_not_posted_again(self):
         self.set_hub_channel(1, 100)
@@ -205,7 +325,7 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
         self.go_live()
         await self.notifier.poll()
 
-        restarted = HubNotifier(self.con, self.fetch_json, self.send, dict(DEFAULT_SETTINGS), self.clock)
+        restarted = HubNotifier(self.con, self.fetch_json, self.send, self.edit, dict(DEFAULT_SETTINGS), self.clock)
         await restarted.poll()
 
         self.assertEqual(len(self.sent), 1)
@@ -394,6 +514,7 @@ class HubMigrationTest(unittest.TestCase):
             con.close()
             self.assertNotIn("hubstate", tables)
             self.assertNotIn("hubseenvideos", tables)
+            self.assertNotIn("hublivemessages", tables)
             self.assertIn("hubchannels", tables)
         finally:
             os.remove(db_path)

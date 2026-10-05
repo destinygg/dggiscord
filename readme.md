@@ -13,7 +13,7 @@
 
 ## Hub Channel Notifications
 
-Run `!hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. `!hubchannel unset` turns notifications off.
+Run `!hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `!hubchannel unset` turns notifications off.
 
 The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints and timing (see `config.example.json`):
 
