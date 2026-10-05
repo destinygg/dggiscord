@@ -2,21 +2,23 @@
 
 ## User Commands
 
-| Command                                                          | Description                                             | Permissions           |
-| ---------------------------------------------------------------- | ------------------------------------------------------- | --------------------- |
-| !sync                                                            | Sync your Dgg subscription and/or username              | All Users             |
-| !syncother @Mention                                              | Sync the mentioned user's Dgg subscription and username | Privileged Users Only |
-| !sync-settings [{enable\|disable} {subscription\|username\|all}] | View or change sync settings                            | Privileged Users Only |
-| !hubchannel {set\|get\|unset}                                     | Set, show, or remove the hub channel for notifications  | Server Admins Only    |
-| !hubrole {set <role>\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts    | Server Admins Only    |
+| Command                                                         | Description                                        | Permissions           |
+| --------------------------------------------------------------- | -------------------------------------------------- | --------------------- |
+| /sync                                                           | Sync your Dgg subscription and/or username         | All Users             |
+| /syncother `member`                                             | Sync another member's Dgg subscription and username | Privileged Users Only |
+| /sync-settings [`action`: enable\|disable] [`setting`: subscription\|username\|all] | View or change sync settings | Privileged Users Only |
+| /hubchannel {set\|get\|unset}                                    | Set, show, or remove the hub channel for notifications | Server Admins Only |
+| /hubrole {set `role`\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts | Server Admins Only  |
+
+All commands are slash commands and only work in servers. `/hubchannel` and `/hubrole` are hidden from members without _Administrator_ by default; a server can change who sees them under _Server Settings → Integrations_. The bot still checks permissions when a command runs.
 
 > Note: A privileged user is the server owner, the bot owner, or a user with one of the following permissions: _Manage Roles_, _Manage Channels_, _Manage Server_, _Administrator_.
 
 ## Hub Channel Notifications
 
-Run `!hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `!hubchannel unset` turns notifications off.
+Run `/hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `/hubchannel unset` turns notifications off.
 
-`!hubrole set <role>` makes every hub post mention a role, given by name, ID, or mention. Use the name or ID to avoid pinging the role while setting it. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `!hubrole unset` removes it.
+`/hubrole set` makes every hub post mention the chosen role. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes it.
 
 The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints and timing (see `config.example.json`):
 
@@ -35,15 +37,17 @@ When the bot starts with no saved state, it records the current stream status an
 2. Enable required intents
 
    1. Open the app's _Bot_ settings
-   2. Under _Privileged Gateway Intents_, enable _Server Members Intent_ and _Message Content Intent_
+   2. Under _Privileged Gateway Intents_, enable _Server Members Intent_
 
 3. Invite the bot to your server
 
    1. Navigate to the app's _OAuth2_ settings
-   2. Under _Scopes_, toggle the _bot_ checkbox
+   2. Under _Scopes_, toggle the _bot_ and _applications.commands_ checkboxes
    3. Under _Bot Permissions_, toggle the _Manage Roles_ and _Manage Nicknames_ checkboxes
    4. Open the _Generated URL_ in your web browser
    5. Follow the on-screen instructions to complete the process
+
+The bot registers its slash commands globally when it starts.
 
 ## Runnin' It
 

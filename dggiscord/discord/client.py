@@ -7,12 +7,11 @@ logger = logging.getLogger(__name__)
 logger.info("loading...")
 
 
-def create_bot(prefix):
+def create_bot():
     intents = discord.Intents.default()
     intents.members = True
-    intents.message_content = True
 
-    return commands.Bot(command_prefix=prefix, intents=intents, help_command=None)
+    return commands.InteractionBot(intents=intents)
 
 
 class Presence(commands.Cog):

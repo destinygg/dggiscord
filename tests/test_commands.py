@@ -4,7 +4,7 @@ from commands.livestatuscfg import HubSettings
 from commands.sync import SyncCommands
 from commands.syncsettings import SyncSettings
 from subsync.sync import MemberSync
-from tests.fakes import FakeApi, FakeContext, FakeGuild, FakeMember, migrated_store
+from tests.fakes import FakeApi, FakeGuild, FakeInteraction, FakeRole, FakeMember, migrated_store
 
 BOT_OWNER = 7
 NOW = "2026-10-04T18:00:00+00:00"
@@ -32,18 +32,29 @@ class SyncCommandTest(CommandTest):
         super().setUp()
         self.cog = SyncCommands(self.store, MemberSync(self.store, self.api), [BOT_OWNER], LINKS)
 
-    async def sync(self, guild=None):
-        ctx = FakeContext(guild or self.guild, self.author)
-        await self.cog.sync.callback(self.cog, ctx)
-        return ctx.replies[-1]
+    async def sync(self):
+        inter = FakeInteraction(self.guild, self.author)
+        await self.cog.sync.callback(self.cog, inter)
+        return inter.replies[-1]
+
+    async def syncother(self, author, target):
+        inter = FakeInteraction(self.guild, author)
+        await self.cog.syncother.callback(self.cog, inter, target)
+        return inter
 
     async def test_disabled_server(self):
-        self.assertIn("sync feature is currently disabled", await self.sync())
+        self.assertIn("Sync feature is currently disabled", await self.sync())
+
+    async def test_defers_before_looking_up_profile(self):
+        self.store.set_sync_settings(self.guild.id, sync_username=True)
+        inter = FakeInteraction(self.guild, self.author)
+        await self.cog.sync.callback(self.cog, inter)
+        self.assertTrue(inter.response.deferred)
 
     async def test_unlinked_account(self):
         self.store.set_sync_settings(self.guild.id, sync_username=True)
         reply = await self.sync()
-        self.assertIn("your profile was not found", reply)
+        self.assertIn("Your profile was not found", reply)
         self.assertIn(LINKS["auth"], reply)
 
     async def test_username_sync(self):
@@ -78,19 +89,19 @@ class SyncCommandTest(CommandTest):
         self.store.set_sync_settings(self.guild.id, sync_username=True)
         target = FakeMember(self.guild, nick="old")
         self.api.profiles[target.id] = profile("Target")
-        ctx = FakeContext(self.guild, self.author, mentions=[target])
-        await self.cog.syncother.callback(self.cog, ctx)
-        self.assertEqual((ctx.replies, target.nick), ([], "old"))
+        inter = await self.syncother(self.author, target)
+        self.assertEqual(target.nick, "old")
+        self.assertEqual(len(inter.sent), 1)
+        self.assertTrue(inter.sent[0][1], "the denial should be ephemeral")
 
     async def test_syncother_by_bot_owner(self):
         self.store.set_sync_settings(self.guild.id, sync_username=True)
         owner = FakeMember(self.guild, member_id=BOT_OWNER)
         target = FakeMember(self.guild, nick="old")
         self.api.profiles[target.id] = profile("Target")
-        ctx = FakeContext(self.guild, owner, mentions=[target])
-        await self.cog.syncother.callback(self.cog, ctx)
+        inter = await self.syncother(owner, target)
         self.assertEqual(target.nick, "Target")
-        self.assertIn("synced: username to `Target`", ctx.replies[-1])
+        self.assertIn("synced: username to `Target`", inter.replies[-1])
 
 
 class SyncSettingsCommandTest(CommandTest):
@@ -98,10 +109,10 @@ class SyncSettingsCommandTest(CommandTest):
         super().setUp()
         self.cog = SyncSettings(self.store, [BOT_OWNER])
 
-    async def run_command(self, *args, administrator=True):
-        ctx = FakeContext(self.guild, self.author, administrator=administrator)
-        await self.cog.sync_settings.callback(self.cog, ctx, *args)
-        return ctx.replies
+    async def run_command(self, action=None, setting=None, administrator=True):
+        inter = FakeInteraction(self.guild, self.author, administrator=administrator)
+        await self.cog.sync_settings.callback(self.cog, inter, action, setting)
+        return inter.replies
 
     async def test_enable_and_disable(self):
         await self.run_command("enable", "all")
@@ -113,7 +124,7 @@ class SyncSettingsCommandTest(CommandTest):
         self.assertIn("Username sync: **enabled**", (await self.run_command())[0])
 
     async def test_ignored_without_privileges(self):
-        self.assertEqual(await self.run_command("enable", "all", administrator=False), [])
+        self.assertIn("Only server owners", (await self.run_command("enable", "all", administrator=False))[0])
         self.assertFalse(self.store.sync_enabled(self.guild.id))
 
 
@@ -122,10 +133,14 @@ class HubSettingsCommandTest(CommandTest):
         super().setUp()
         self.cog = HubSettings(self.store)
 
-    async def hubchannel(self, arg, administrator=True):
-        ctx = FakeContext(self.guild, self.author, administrator=administrator)
-        await self.cog.hubchannel.callback(self.cog, ctx, arg)
-        return ctx.replies
+    async def run_command(self, command, *args, administrator=True):
+        inter = FakeInteraction(self.guild, self.author, administrator=administrator)
+        await command.callback(self.cog, inter, *args)
+        return inter.replies
+
+    async def hubchannel(self, subcommand, administrator=True):
+        command = getattr(self.cog, f"hubchannel_{subcommand}")
+        return await self.run_command(command, administrator=administrator)
 
     async def test_set_get_unset(self):
         await self.hubchannel("set")
@@ -134,8 +149,20 @@ class HubSettingsCommandTest(CommandTest):
         self.assertIn("No hub channel is set", (await self.hubchannel("get"))[0])
 
     async def test_admin_only(self):
-        self.assertEqual(await self.hubchannel("set", administrator=False), [])
+        self.assertIn("Only server admins", (await self.hubchannel("set", administrator=False))[0])
         self.assertIsNone(self.store.hub_channel(self.guild.id))
+
+    async def test_hubrole_set_get_unset(self):
+        role = self.guild.add_role("Notifications")
+        await self.run_command(self.cog.hubrole_set, role)
+        self.assertIn("**Notifications**", (await self.run_command(self.cog.hubrole_get))[0])
+        await self.run_command(self.cog.hubrole_unset)
+        self.assertIn("No notify role is set", (await self.run_command(self.cog.hubrole_get))[0])
+
+    async def test_hubrole_rejects_everyone(self):
+        everyone = FakeRole(self.guild, "@everyone", role_id=self.guild.id)
+        self.assertIn("@everyone can't be used", (await self.run_command(self.cog.hubrole_set, everyone))[0])
+        self.assertIsNone(self.store.hub_notify_role(self.guild.id))
 
 
 if __name__ == "__main__":

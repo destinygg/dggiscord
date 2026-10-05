@@ -24,7 +24,11 @@ class FakeRole:
         self.name = name
         self.color = color if color is not None else disnake.Color(0)
         self.position = position
+        self.mentionable = True
         self.deleted = False
+
+    def is_default(self):
+        return self.id == self.guild.id
 
     # Member.top_role comparisons, as on disnake.Role
     def __lt__(self, other):
@@ -126,21 +130,30 @@ class FakeApi:
         return self.flair_list
 
 
-class FakeContext:
-    def __init__(self, guild, author, mentions=(), administrator=False):
-        self.replies = []
-        channel_permissions = disnake.Permissions(administrator=administrator)
-        self.message = type("FakeMessage", (), {})()
-        self.message.guild = guild
-        self.message.author = author
-        self.message.mentions = list(mentions)
-        self.message.channel = type("FakeChannel", (), {"id": 555, "permissions_for": lambda _, member: channel_permissions})()
+class FakeInteraction:
+    def __init__(self, guild, author, administrator=False):
+        self.guild = guild
+        self.author = author
+        self.permissions = disnake.Permissions(administrator=administrator)
+        self.channel = type("FakeChannel", (), {"id": 555})()
+        self.response = FakeInteractionResponse()
+        # (content, ephemeral) for each message sent
+        self.sent = []
 
-    async def reply(self, content):
-        self.replies.append(content)
+    @property
+    def replies(self):
+        return [content for content, _ in self.sent]
 
-    async def trigger_typing(self):
-        pass
+    async def send(self, content, ephemeral=False):
+        self.sent.append((content, ephemeral))
+
+
+class FakeInteractionResponse:
+    def __init__(self):
+        self.deferred = False
+
+    async def defer(self):
+        self.deferred = True
 
 
 def migrated_store(test):

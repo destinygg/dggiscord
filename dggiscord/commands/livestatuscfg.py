@@ -1,9 +1,23 @@
 import logging
 
+import disnake
 from disnake.ext import commands
 
 logger = logging.getLogger(__name__)
 logger.info("loading...")
+
+ADMIN_ONLY = disnake.Permissions(administrator=True)
+GUILD_ONLY = disnake.InteractionContextTypes(guild=True)
+
+
+async def is_admin(inter):
+    # only let server admins determine this; default_member_permissions hides the commands
+    # from everyone else, but a server can override that in its integration settings
+    if inter.permissions.administrator:
+        return True
+
+    await inter.send('Error: Only server admins can use this command.', ephemeral=True)
+    return False
 
 
 class HubSettings(commands.Cog):
@@ -14,74 +28,89 @@ class HubSettings(commands.Cog):
         """
         self.store = store
 
-    @commands.command()
-    async def hubchannel(self, ctx, arg=None):
-        # only let server admins determine this
-        permissions = ctx.message.channel.permissions_for(ctx.message.author)
-        if not permissions.administrator:
+    @commands.slash_command(default_member_permissions=ADMIN_ONLY, contexts=GUILD_ONLY)
+    async def hubchannel(self, inter):
+        """Set, show, or remove the channel that receives hub notifications."""
+
+    @hubchannel.sub_command(name="get")
+    async def hubchannel_get(self, inter):
+        """Show the hub channel."""
+        if not await is_admin(inter):
             return
 
-        if arg == "get":
-            channel_id = self.store.hub_channel(ctx.message.guild.id)
+        channel_id = self.store.hub_channel(inter.guild.id)
 
-            logger.info(f'hubchannel get response from db {channel_id}')
-            if channel_id is None:
-                await ctx.reply('No hub channel is set. Use `hubchannel set` in the channel that should receive notifications.')
-            else:
-                await ctx.reply(f'Current hub channel is set to <#{channel_id}>')
-        elif arg == "set":
-            self.store.set_hub_channel(ctx.message.guild.id, ctx.message.channel.id)
-            await ctx.reply(f'Channel set to <#{ctx.message.channel.id}>. Stream and new video notifications will be posted here.')
-        elif arg == "unset":
-            self.store.set_hub_channel(ctx.message.guild.id, None)
-            await ctx.reply('Hub channel removed. Notifications will no longer be posted.')
+        logger.info(f'hubchannel get response from db {channel_id}')
+        if channel_id is None:
+            await inter.send('No hub channel is set. Use `/hubchannel set` in the channel that should receive notifications.')
         else:
-            await ctx.reply('Error: Command args `set|get|unset`.')
+            await inter.send(f'Current hub channel is set to <#{channel_id}>')
 
-
-    @commands.command()
-    async def hubrole(self, ctx, arg=None, *, role=None):
-        # only let server admins determine this
-        permissions = ctx.message.channel.permissions_for(ctx.message.author)
-        if not permissions.administrator:
+    @hubchannel.sub_command(name="set")
+    async def hubchannel_set(self, inter):
+        """Make this channel the hub channel for stream and new video notifications."""
+        if not await is_admin(inter):
             return
 
-        if arg == "get":
-            role_id = self.store.hub_notify_role(ctx.message.guild.id)
+        self.store.set_hub_channel(inter.guild.id, inter.channel.id)
+        await inter.send(f'Channel set to <#{inter.channel.id}>. Stream and new video notifications will be posted here.')
 
-            logger.info(f'hubrole get response from db {role_id}')
-            if role_id is None:
-                await ctx.reply('No notify role is set.')
-            else:
-                # describe the role by name so replying doesn't ping it
-                notify_role = ctx.message.guild.get_role(role_id)
-                name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({role_id})'
-                await ctx.reply(f'Hub notifications mention {name}.')
-        elif arg == "set":
-            if role is None:
-                await ctx.reply('Error: Specify a role by name, ID, or mention, e.g. `hubrole set Notifications`.')
-                return
+    @hubchannel.sub_command(name="unset")
+    async def hubchannel_unset(self, inter):
+        """Remove the hub channel and stop posting notifications."""
+        if not await is_admin(inter):
+            return
 
-            try:
-                notify_role = await commands.RoleConverter().convert(ctx, role)
-            except commands.RoleNotFound:
-                await ctx.reply(f'Error: No role named `{role}` was found.')
-                return
+        self.store.set_hub_channel(inter.guild.id, None)
+        await inter.send('Hub channel removed. Notifications will no longer be posted.')
 
-            if notify_role.is_default():
-                await ctx.reply('Error: @everyone can\'t be used as the notify role.')
-                return
+    @commands.slash_command(default_member_permissions=ADMIN_ONLY, contexts=GUILD_ONLY)
+    async def hubrole(self, inter):
+        """Set, show, or remove the role mentioned in hub notifications."""
 
-            self.store.set_hub_notify_role(ctx.message.guild.id, notify_role.id)
-            logger.info(f'hubrole set to {notify_role.id} for server {ctx.message.guild.id}')
+    @hubrole.sub_command(name="get")
+    async def hubrole_get(self, inter):
+        """Show the role mentioned in hub notifications."""
+        if not await is_admin(inter):
+            return
 
-            reply = f'Hub notifications will mention **{notify_role.name}**.'
-            if not notify_role.mentionable and not ctx.message.guild.me.guild_permissions.mention_everyone:
-                reply += ('\nThis role isn\'t mentionable and the bot doesn\'t have the *Mention @everyone, @here, and All Roles* '
-                          'permission, so the mention won\'t notify anyone. Make the role mentionable or give the bot that permission.')
-            await ctx.reply(reply)
-        elif arg == "unset":
-            self.store.set_hub_notify_role(ctx.message.guild.id, None)
-            await ctx.reply('Notify role removed. Hub notifications will no longer mention a role.')
+        role_id = self.store.hub_notify_role(inter.guild.id)
+
+        logger.info(f'hubrole get response from db {role_id}')
+        if role_id is None:
+            await inter.send('No notify role is set.')
         else:
-            await ctx.reply('Error: Command args `set <role>|get|unset`.')
+            # describe the role by name so replying doesn't ping it
+            notify_role = inter.guild.get_role(role_id)
+            name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({role_id})'
+            await inter.send(f'Hub notifications mention {name}.')
+
+    @hubrole.sub_command(name="set")
+    async def hubrole_set(
+        self, inter, role: disnake.Role = commands.Param(description="The role to mention in hub notifications")
+    ):
+        """Mention a role in every hub notification."""
+        if not await is_admin(inter):
+            return
+
+        if role.is_default():
+            await inter.send('Error: @everyone can\'t be used as the notify role.', ephemeral=True)
+            return
+
+        self.store.set_hub_notify_role(inter.guild.id, role.id)
+        logger.info(f'hubrole set to {role.id} for server {inter.guild.id}')
+
+        reply = f'Hub notifications will mention **{role.name}**.'
+        if not role.mentionable and not inter.guild.me.guild_permissions.mention_everyone:
+            reply += ('\nThis role isn\'t mentionable and the bot doesn\'t have the *Mention @everyone, @here, and All Roles* '
+                      'permission, so the mention won\'t notify anyone. Make the role mentionable or give the bot that permission.')
+        await inter.send(reply)
+
+    @hubrole.sub_command(name="unset")
+    async def hubrole_unset(self, inter):
+        """Stop mentioning a role in hub notifications."""
+        if not await is_admin(inter):
+            return
+
+        self.store.set_hub_notify_role(inter.guild.id, None)
+        await inter.send('Notify role removed. Hub notifications will no longer mention a role.')
