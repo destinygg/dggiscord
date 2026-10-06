@@ -20,19 +20,22 @@ Run `/hubchannel set` with a channel to make it the server's hub channel. The bo
 
 `/hubrole set` makes every hub post mention the chosen role. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes it.
 
-The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints and timing (see `config.example.json`):
+The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints, links and timing (see `config.example.json`):
 
-| Setting         | Default | Description                                                                         |
-| --------------- | ------- | ----------------------------------------------------------------------------------- |
-| `poll_interval` | `60`    | Seconds between polls                                                               |
-| `live_cooldown` | `30`    | Minutes the stream must be offline before going live is announced again             |
-| `video_max_age` | `24`    | Hours; new videos published longer ago than this are skipped (e.g. on a source switch) |
+| Setting           | Default                                  | Description                                                                         |
+| ----------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `stream_endpoint` | `https://www.destiny.gg/api/info/stream` | Where the live status is read from                                                  |
+| `videos_endpoint` | `https://www.destiny.gg/api/info/videos` | Where new videos are read from                                                      |
+| `bigscreen_link`  | `https://www.destiny.gg/bigscreen`       | The destiny.gg watch link in go-live posts                                          |
+| `poll_interval`   | `60`                                     | Seconds between polls                                                               |
+| `live_cooldown`   | `30`                                     | Minutes the stream must be offline before going live is announced again             |
+| `video_max_age`   | `24`                                     | Hours; new videos published longer ago than this are skipped (e.g. on a source switch) |
 
 When the bot starts with no saved state, it records the current stream status and videos without posting them.
 
 ## Creating a Bot User
 
-1. Create a new application in the [Discord developer portal](https://discordapp.com/developers/applications/)
+1. Create a new application in the [Discord developer portal](https://discord.com/developers/applications)
 
 2. Enable required intents
 
@@ -44,8 +47,9 @@ When the bot starts with no saved state, it records the current stream status an
    1. Navigate to the app's _OAuth2_ settings
    2. Under _Scopes_, toggle the _bot_ and _applications.commands_ checkboxes
    3. Under _Bot Permissions_, toggle the _Manage Roles_ and _Manage Nicknames_ checkboxes
-   4. Open the _Generated URL_ in your web browser
-   5. Follow the on-screen instructions to complete the process
+   4. (Optional) To use hub notifications, also toggle _View Channels_, _Send Messages_ and _Embed Links_ (or grant them on the hub channel)
+   5. Open the _Generated URL_ in your web browser
+   6. Follow the on-screen instructions to complete the process
 
 The bot registers its slash commands globally when it starts.
 
@@ -57,7 +61,7 @@ Docker:
 mkdir cfg
 cp config.example.json ./cfg/config.json
 <edit config.json>
-docker-compose up
+docker compose up
 ```
 
 Console:
@@ -68,12 +72,15 @@ mkdir cfg
 cp config.example.json ./cfg/config.json
 <edit config.json>
 
+pip install -r requirements.txt
 python3 ./dggiscord/app.py [--config <alternative location>]
 ```
 
 ## Updatin' It
 
-docker-compose up -d --build
+```
+docker compose up -d --build
+```
 
 ## Tests
 
@@ -84,4 +91,4 @@ python -m unittest discover -s tests -t .
 
 ## Database Migrations
 
-Database migrations run automatically when the application starts. The system will create a `migrations` table to track applied migrations, and execute any that are pending. You can manage migrations manually using `./dggiscord/migrate.py`.
+Database migrations run automatically when the application starts. The system will create a `migrations` table to track applied migrations, and execute any that are pending. You can manage migrations manually using `./dggiscord/migrate.py [--config <path>] {status|upgrade|downgrade [version]|create}`; with no command it shows the status.
