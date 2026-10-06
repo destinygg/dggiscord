@@ -8,6 +8,11 @@ logger.info("loading...")
 
 ADMIN_ONLY = disnake.Permissions(administrator=True)
 GUILD_ONLY = disnake.InteractionContextTypes(guild=True)
+HUB_PERMISSIONS = [
+    ("view_channel", "View Channel"),
+    ("send_messages", "Send Messages"),
+    ("embed_links", "Embed Links"),
+]
 
 
 async def is_admin(inter):
@@ -42,18 +47,27 @@ class HubSettings(commands.Cog):
 
         logger.info(f'hubchannel get response from db {channel_id}')
         if channel_id is None:
-            await inter.send('No hub channel is set. Use `/hubchannel set` in the channel that should receive notifications.')
+            await inter.send('No hub channel is set. Use `/hubchannel set` to choose the channel that should receive notifications.')
         else:
             await inter.send(f'Current hub channel is set to <#{channel_id}>')
 
     @hubchannel.sub_command(name="set")
-    async def hubchannel_set(self, inter):
-        """Make this channel the hub channel for stream and new video notifications."""
+    async def hubchannel_set(
+        self, inter, channel: disnake.TextChannel = commands.Param(description="The channel to post notifications in")
+    ):
+        """Choose the hub channel for stream and new video notifications."""
         if not await is_admin(inter):
             return
 
-        self.store.set_hub_channel(inter.guild.id, inter.channel.id)
-        await inter.send(f'Channel set to <#{inter.channel.id}>. Stream and new video notifications will be posted here.')
+        # notifications are posted with embeds, so the bot needs all three
+        permissions = channel.permissions_for(inter.guild.me)
+        missing = [f'*{label}*' for name, label in HUB_PERMISSIONS if not getattr(permissions, name)]
+        if missing:
+            await inter.send(f'Error: The bot needs {", ".join(missing)} in <#{channel.id}> to post notifications there.', ephemeral=True)
+            return
+
+        self.store.set_hub_channel(inter.guild.id, channel.id)
+        await inter.send(f'Channel set to <#{channel.id}>. Stream and new video notifications will be posted there.')
 
     @hubchannel.sub_command(name="unset")
     async def hubchannel_unset(self, inter):
