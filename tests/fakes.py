@@ -113,6 +113,16 @@ class FakeGuild:
         return self.add_role(name, color=color)
 
 
+class FakeChannel:
+    def __init__(self, guild, channel_id=None, permissions=None):
+        self.guild = guild
+        self.id = channel_id if channel_id is not None else next(_ids)
+        self.permissions = permissions or disnake.Permissions(view_channel=True, send_messages=True, embed_links=True)
+
+    def permissions_for(self, member):
+        return self.permissions
+
+
 class FakeApi:
     def __init__(self, profiles=None, flairs=None, all_profiles=None):
         self.profiles = profiles or {}
@@ -135,7 +145,6 @@ class FakeInteraction:
         self.guild = guild
         self.author = author
         self.permissions = disnake.Permissions(administrator=administrator)
-        self.channel = type("FakeChannel", (), {"id": 555})()
         self.response = FakeInteractionResponse()
         # (content, ephemeral) for each message sent
         self.sent = []

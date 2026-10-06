@@ -7,7 +7,7 @@
 | /sync                                                           | Sync your Dgg subscription and/or username         | All Users             |
 | /syncother `member`                                             | Sync another member's Dgg subscription and username | Privileged Users Only |
 | /sync-settings [`action`: enable\|disable] [`setting`: subscription\|username\|all] | View or change sync settings | Privileged Users Only |
-| /hubchannel {set\|get\|unset}                                    | Set, show, or remove the hub channel for notifications | Server Admins Only |
+| /hubchannel {set `channel`\|get\|unset}                          | Set, show, or remove the hub channel for notifications | Server Admins Only |
 | /hubrole {set `role`\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts | Server Admins Only  |
 
 All commands are slash commands and only work in servers. `/hubchannel` and `/hubrole` are hidden from members without _Administrator_ by default; a server can change who sees them under _Server Settings → Integrations_. The bot still checks permissions when a command runs.
@@ -16,7 +16,7 @@ All commands are slash commands and only work in servers. `/hubchannel` and `/hu
 
 ## Hub Channel Notifications
 
-Run `/hubchannel set` in a channel to make it the server's hub channel. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `/hubchannel unset` turns notifications off.
+Run `/hubchannel set` with a channel to make it the server's hub channel. The bot needs _View Channel_, _Send Messages_ and _Embed Links_ there. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `/hubchannel unset` turns notifications off.
 
 `/hubrole set` makes every hub post mention the chosen role. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes it.
 

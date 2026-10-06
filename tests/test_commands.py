@@ -1,10 +1,12 @@
 import unittest
 
+import disnake
+
 from commands.livestatuscfg import HubSettings
 from commands.sync import SyncCommands
 from commands.syncsettings import SyncSettings
 from subsync.sync import MemberSync
-from tests.fakes import FakeApi, FakeGuild, FakeInteraction, FakeRole, FakeMember, migrated_store
+from tests.fakes import FakeApi, FakeChannel, FakeGuild, FakeInteraction, FakeRole, FakeMember, migrated_store
 
 BOT_OWNER = 7
 NOW = "2026-10-04T18:00:00+00:00"
@@ -138,18 +140,29 @@ class HubSettingsCommandTest(CommandTest):
         await command.callback(self.cog, inter, *args)
         return inter.replies
 
-    async def hubchannel(self, subcommand, administrator=True):
+    async def hubchannel(self, subcommand, *args, administrator=True):
         command = getattr(self.cog, f"hubchannel_{subcommand}")
-        return await self.run_command(command, administrator=administrator)
+        return await self.run_command(command, *args, administrator=administrator)
 
     async def test_set_get_unset(self):
-        await self.hubchannel("set")
-        self.assertIn("<#555>", (await self.hubchannel("get"))[0])
+        channel = FakeChannel(self.guild)
+        await self.hubchannel("set", channel)
+        self.assertIn(f"<#{channel.id}>", (await self.hubchannel("get"))[0])
         await self.hubchannel("unset")
         self.assertIn("No hub channel is set", (await self.hubchannel("get"))[0])
 
+    async def test_set_requires_bot_permissions(self):
+        channel = FakeChannel(self.guild, permissions=disnake.Permissions(view_channel=True, send_messages=True))
+        inter = FakeInteraction(self.guild, self.author, administrator=True)
+        await self.cog.hubchannel_set.callback(self.cog, inter, channel)
+        self.assertIn("*Embed Links*", inter.replies[0])
+        self.assertNotIn("*Send Messages*", inter.replies[0])
+        self.assertTrue(inter.sent[0][1], "the error should be ephemeral")
+        self.assertIsNone(self.store.hub_channel(self.guild.id))
+
     async def test_admin_only(self):
-        self.assertIn("Only server admins", (await self.hubchannel("set", administrator=False))[0])
+        channel = FakeChannel(self.guild)
+        self.assertIn("Only server admins", (await self.hubchannel("set", channel, administrator=False))[0])
         self.assertIsNone(self.store.hub_channel(self.guild.id))
 
     async def test_hubrole_set_get_unset(self):
