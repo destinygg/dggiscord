@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_SETTINGS = {
     "stream_endpoint": "https://www.destiny.gg/api/info/stream",
     "videos_endpoint": "https://www.destiny.gg/api/info/videos",
+    # only read by the /live and /vods commands
+    "hosting_endpoint": "https://www.destiny.gg/api/info/hosting",
+    "vods_endpoint": "https://www.destiny.gg/api/info/vods",
     "bigscreen_link": "https://www.destiny.gg/bigscreen",
     # seconds between polls
     "poll_interval": 60,

@@ -9,8 +9,12 @@
 | /sync-settings [`action`: enable\|disable] [`setting`: subscription\|username\|all] | View or change sync settings | Privileged Users Only |
 | /hubchannel {set `channel`\|get\|unset}                          | Set, show, or remove the hub channel for notifications | Server Admins Only |
 | /hubrole {set `role`\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts | Server Admins Only  |
+| /live                                                           | Show whether Destiny is live, or what destiny.gg is hosting | All Users      |
+| /youtube                                                        | Show Destiny's latest YouTube video                | All Users             |
+| /vods                                                           | Show Destiny's latest stream VODs                  | All Users             |
+| /debug                                                          | Show the bot's version and uptime                  | Bot Owner Only        |
 
-All commands are slash commands and only work in servers. `/hubchannel` and `/hubrole` are hidden from members without _Administrator_ by default; a server can change who sees them under _Server Settings → Integrations_. The bot still checks permissions when a command runs.
+All commands are slash commands and only work in servers. `/hubchannel`, `/hubrole` and `/debug` are hidden from members without _Administrator_ by default; a server can change who sees them under _Server Settings → Integrations_. The bot still checks permissions when a command runs.
 
 > Note: A privileged user is the server owner, the bot owner, or a user with one of the following permissions: _Manage Roles_, _Manage Channels_, _Manage Server_, _Administrator_.
 
@@ -20,12 +24,14 @@ Run `/hubchannel set` with a channel to make it the server's hub channel. The bo
 
 `/hubrole set` makes every hub post mention the chosen role. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes it.
 
-The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. The optional `dgg.hub` block in `config.json` changes the endpoints, links and timing (see `config.example.json`):
+The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. `/live` and `/vods` also read `/api/info/hosting` and `/api/info/vods` when someone runs them. The optional `dgg.hub` block in `config.json` changes the endpoints, links and timing (see `config.example.json`):
 
 | Setting           | Default                                  | Description                                                                         |
 | ----------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
 | `stream_endpoint` | `https://www.destiny.gg/api/info/stream` | Where the live status is read from                                                  |
 | `videos_endpoint` | `https://www.destiny.gg/api/info/videos` | Where new videos are read from                                                      |
+| `hosting_endpoint` | `https://www.destiny.gg/api/info/hosting` | Where `/live` reads what destiny.gg is hosting                                    |
+| `vods_endpoint`   | `https://www.destiny.gg/api/info/vods`   | Where `/vods` reads the latest VODs                                                 |
 | `bigscreen_link`  | `https://www.destiny.gg/bigscreen`       | The destiny.gg watch link in go-live posts                                          |
 | `poll_interval`   | `60`                                     | Seconds between polls                                                               |
 | `live_cooldown`   | `30`                                     | Minutes the stream must be offline before going live is announced again             |

@@ -148,13 +148,16 @@ class FakeInteraction:
         self.response = FakeInteractionResponse()
         # (content, ephemeral) for each message sent
         self.sent = []
+        # the embed of each message sent, or None
+        self.embeds = []
 
     @property
     def replies(self):
         return [content for content, _ in self.sent]
 
-    async def send(self, content, ephemeral=False):
+    async def send(self, content=None, embed=None, ephemeral=False):
         self.sent.append((content, ephemeral))
+        self.embeds.append(embed)
 
 
 class FakeInteractionResponse:

@@ -37,7 +37,7 @@ class BuildBotTest(unittest.IsolatedAsyncioTestCase):
     def test_registers_every_slash_command(self):
         self.assertEqual(
             sorted(command.name for command in self.bot.slash_commands),
-            ["hubchannel", "hubrole", "sync", "sync-settings", "syncother"],
+            ["debug", "hubchannel", "hubrole", "live", "sync", "sync-settings", "syncother", "vods", "youtube"],
         )
 
     def test_hub_subcommands(self):
@@ -48,8 +48,8 @@ class BuildBotTest(unittest.IsolatedAsyncioTestCase):
         for command in self.bot.slash_commands:
             self.assertEqual(command.body.contexts, disnake.InteractionContextTypes(guild=True), command.name)
 
-    def test_hub_commands_default_to_admins(self):
-        for name in ("hubchannel", "hubrole"):
+    def test_admin_commands_default_to_admins(self):
+        for name in ("debug", "hubchannel", "hubrole"):
             permissions = self.bot.get_slash_command(name).default_member_permissions
             self.assertEqual(permissions, disnake.Permissions(administrator=True))
 
