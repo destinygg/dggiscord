@@ -27,6 +27,8 @@
        "hub":{
             "stream_endpoint":"https://www.destiny.gg/api/info/stream",
             "videos_endpoint":"https://www.destiny.gg/api/info/videos",
+            "hosting_endpoint":"https://www.destiny.gg/api/info/hosting",
+            "vods_endpoint":"https://www.destiny.gg/api/info/vods",
             "bigscreen_link":"https://www.destiny.gg/bigscreen",
             "poll_interval":60,
             "live_cooldown":30,

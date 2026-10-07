@@ -10,4 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+ARG VERSION=dev
+ENV DGGISCORD_VERSION=$VERSION
+
 ENTRYPOINT [ "python", "./dggiscord/app.py" ]
