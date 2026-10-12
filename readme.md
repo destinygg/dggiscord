@@ -8,7 +8,7 @@
 | /syncother `member`                                             | Sync another member's Dgg subscription and username | Privileged Users Only |
 | /sync-settings [`action`: enable\|disable] [`setting`: subscription\|username\|all] | View or change sync settings | Privileged Users Only |
 | /hubchannel {set `channel`\|get\|unset}                          | Set, show, or remove the hub channel for notifications | Server Admins Only |
-| /hubrole {set `role`\|get\|unset}                                 | Set, show, or remove the role mentioned in hub posts | Server Admins Only  |
+| /hubrole {set `role` [`event`]\|get\|unset [`event`]}            | Set, show, or remove the roles mentioned in hub posts | Server Admins Only |
 | /live                                                           | Show whether Destiny is live, or what destiny.gg is hosting | All Users      |
 | /youtube                                                        | Show Destiny's latest YouTube video                | All Users             |
 | /vods                                                           | Show Destiny's latest stream VODs                  | All Users             |
@@ -22,7 +22,7 @@ All commands are slash commands and only work in servers. `/hubchannel`, `/hubro
 
 Run `/hubchannel set` with a channel to make it the server's hub channel. The bot needs _View Channel_, _Send Messages_ and _Embed Links_ there. The bot posts there when the stream goes live and when a new video is uploaded. If another platform goes live (or one ends) during the same stream, the bot edits the go-live post to show where the stream is live instead of posting again. `/hubchannel unset` turns notifications off.
 
-`/hubrole set` makes every hub post mention the chosen role. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes it.
+`/hubrole set` makes hub posts mention the chosen role. Its `event` option picks which posts: _Going live_, _New videos_, or _Both_ (the default), so a server can ping one role for streams and another for videos. The role must be mentionable, or the bot needs the _Mention @everyone, @here, and All Roles_ permission, for the mention to notify anyone. `/hubrole unset` removes the role for the chosen `event`, or both by default.
 
 The bot polls the website's `/api/info/stream` and `/api/info/videos` endpoints. `/live` and `/vods` also read `/api/info/hosting` and `/api/info/vods` when someone runs them. The optional `dgg.hub` block in `config.json` changes the endpoints, links and timing (see `config.example.json`):
 

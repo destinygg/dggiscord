@@ -99,7 +99,8 @@ class FlairMappingTest(StoreTest):
 class HubSettingsTest(StoreTest):
     def test_unset_guild(self):
         self.assertIsNone(self.store.hub_channel(GUILD))
-        self.assertIsNone(self.store.hub_notify_role(GUILD))
+        self.assertIsNone(self.store.hub_role(GUILD, "live"))
+        self.assertIsNone(self.store.hub_role(GUILD, "video"))
 
     def test_set_and_unset_channel(self):
         self.store.set_hub_channel(GUILD, 500)
@@ -107,22 +108,32 @@ class HubSettingsTest(StoreTest):
         self.store.set_hub_channel(GUILD, None)
         self.assertIsNone(self.store.hub_channel(GUILD))
 
-    def test_set_and_unset_notify_role(self):
-        self.store.set_hub_notify_role(GUILD, 600)
-        self.assertEqual(self.store.hub_notify_role(GUILD), 600)
-        self.store.set_hub_notify_role(GUILD, None)
-        self.assertIsNone(self.store.hub_notify_role(GUILD))
+    def test_set_and_unset_role(self):
+        self.store.set_hub_role(GUILD, "live", 600)
+        self.assertEqual(self.store.hub_role(GUILD, "live"), 600)
+        self.store.set_hub_role(GUILD, "live", None)
+        self.assertIsNone(self.store.hub_role(GUILD, "live"))
 
-    def test_changing_the_channel_keeps_the_role(self):
+    def test_roles_are_set_per_event(self):
+        self.store.set_hub_role(GUILD, "live", 600)
+        self.store.set_hub_role(GUILD, "video", 601)
+        self.assertEqual(self.store.hub_role(GUILD, "live"), 600)
+        self.assertEqual(self.store.hub_role(GUILD, "video"), 601)
+        self.store.set_hub_role(GUILD, "video", None)
+        self.assertEqual(self.store.hub_role(GUILD, "live"), 600)
+
+    def test_changing_the_channel_keeps_the_roles(self):
         self.store.set_hub_channel(GUILD, 500)
-        self.store.set_hub_notify_role(GUILD, 600)
+        self.store.set_hub_role(GUILD, "live", 600)
+        self.store.set_hub_role(GUILD, "video", 601)
         self.store.set_hub_channel(GUILD, 501)
-        self.assertEqual(self.store.hub_notify_role(GUILD), 600)
+        self.assertEqual(self.store.hub_role(GUILD, "live"), 600)
+        self.assertEqual(self.store.hub_role(GUILD, "video"), 601)
 
-    def test_changing_the_role_keeps_the_channel(self):
-        self.store.set_hub_notify_role(GUILD, 600)
+    def test_changing_a_role_keeps_the_channel(self):
+        self.store.set_hub_role(GUILD, "live", 600)
         self.store.set_hub_channel(GUILD, 500)
-        self.store.set_hub_notify_role(GUILD, None)
+        self.store.set_hub_role(GUILD, "live", None)
         self.assertEqual(self.store.hub_channel(GUILD), 500)
 
 

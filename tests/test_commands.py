@@ -167,15 +167,44 @@ class HubSettingsCommandTest(CommandTest):
 
     async def test_hubrole_set_get_unset(self):
         role = self.guild.add_role("Notifications")
-        await self.run_command(self.cog.hubrole_set, role)
+        await self.run_command(self.cog.hubrole_set, role, "all")
+        self.assertEqual(self.store.hub_role(self.guild.id, "live"), role.id)
+        self.assertEqual(self.store.hub_role(self.guild.id, "video"), role.id)
         self.assertIn("**Notifications**", (await self.run_command(self.cog.hubrole_get))[0])
-        await self.run_command(self.cog.hubrole_unset)
+        await self.run_command(self.cog.hubrole_unset, "all")
         self.assertIn("No notify role is set", (await self.run_command(self.cog.hubrole_get))[0])
+
+    async def test_hubrole_per_event(self):
+        live_role = self.guild.add_role("Live")
+        video_role = self.guild.add_role("Videos")
+        self.assertIn("Go-live notifications will mention **Live**", (await self.run_command(self.cog.hubrole_set, live_role, "live"))[0])
+        await self.run_command(self.cog.hubrole_set, video_role, "video")
+        self.assertEqual(self.store.hub_role(self.guild.id, "live"), live_role.id)
+        self.assertEqual(self.store.hub_role(self.guild.id, "video"), video_role.id)
+        self.assertEqual(
+            (await self.run_command(self.cog.hubrole_get))[0],
+            "Go-live notifications mention **Live**.\nNew video notifications mention **Videos**.",
+        )
+
+        await self.run_command(self.cog.hubrole_unset, "video")
+        self.assertEqual(self.store.hub_role(self.guild.id, "live"), live_role.id)
+        self.assertIsNone(self.store.hub_role(self.guild.id, "video"))
+        self.assertIn("New video notifications mention no role", (await self.run_command(self.cog.hubrole_get))[0])
+
+    async def test_hubrole_rejects_unknown_event(self):
+        role = self.guild.add_role("Notifications")
+        inter = FakeInteraction(self.guild, self.author, administrator=True)
+        await self.cog.hubrole_set.callback(self.cog, inter, role, "videos")
+        self.assertIn("The event must be one of", inter.replies[0])
+        self.assertTrue(inter.sent[0][1], "the error should be ephemeral")
+        self.assertIsNone(self.store.hub_role(self.guild.id, "video"))
+        self.assertIn("The event must be one of", (await self.run_command(self.cog.hubrole_unset, "live stream"))[0])
 
     async def test_hubrole_rejects_everyone(self):
         everyone = FakeRole(self.guild, "@everyone", role_id=self.guild.id)
-        self.assertIn("@everyone can't be used", (await self.run_command(self.cog.hubrole_set, everyone))[0])
-        self.assertIsNone(self.store.hub_notify_role(self.guild.id))
+        self.assertIn("@everyone can't be used", (await self.run_command(self.cog.hubrole_set, everyone, "all"))[0])
+        self.assertIsNone(self.store.hub_role(self.guild.id, "live"))
+        self.assertIsNone(self.store.hub_role(self.guild.id, "video"))
 
 
 if __name__ == "__main__":
