@@ -14,6 +14,37 @@ HUB_PERMISSIONS = [
     ("embed_links", "Embed Links"),
 ]
 
+# the hub events a notify role can be set for, with how replies name them
+HUB_EVENTS = {
+    "live": "Go-live",
+    "video": "New video",
+}
+EVENT_CHOICES = {
+    "Both": "all",
+    "Going live": "live",
+    "New videos": "video",
+}
+
+
+def selected_events(event):
+    """Return the hub events an event option ("all", "live" or "video") covers, or None if it isn't one."""
+    if event == "all":
+        return list(HUB_EVENTS)
+    return [event] if event in HUB_EVENTS else None
+
+
+async def deny_unknown_event(inter, events):
+    # Discord only sends the listed choices, but check rather than fail on a lookup
+    if events is not None:
+        return False
+
+    await inter.send('Error: The event must be one of: Both, Going live, New videos.', ephemeral=True)
+    return True
+
+
+def describe_events(events):
+    return " and ".join(HUB_EVENTS[e] if i == 0 else HUB_EVENTS[e].lower() for i, e in enumerate(events))
+
 
 async def is_admin(inter):
     # only let server admins determine this; default_member_permissions hides the commands
@@ -80,30 +111,41 @@ class HubSettings(commands.Cog):
 
     @commands.slash_command(default_member_permissions=ADMIN_ONLY, contexts=GUILD_ONLY)
     async def hubrole(self, inter):
-        """Set, show, or remove the role mentioned in hub notifications."""
+        """Set, show, or remove the roles mentioned in hub notifications."""
 
     @hubrole.sub_command(name="get")
     async def hubrole_get(self, inter):
-        """Show the role mentioned in hub notifications."""
+        """Show the roles mentioned in hub notifications."""
         if not await is_admin(inter):
             return
 
-        role_id = self.store.hub_notify_role(inter.guild.id)
+        role_ids = {event: self.store.hub_role(inter.guild.id, event) for event in HUB_EVENTS}
 
-        logger.info(f'hubrole get response from db {role_id}')
-        if role_id is None:
+        logger.info(f'hubrole get response from db {role_ids}')
+        if not any(role_ids.values()):
             await inter.send('No notify role is set.')
-        else:
-            # describe the role by name so replying doesn't ping it
-            notify_role = inter.guild.get_role(role_id)
-            name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({role_id})'
-            await inter.send(f'Hub notifications mention {name}.')
+            return
+
+        lines = []
+        for event, label in HUB_EVENTS.items():
+            role_id = role_ids[event]
+            if role_id is None:
+                name = 'no role'
+            else:
+                # describe the role by name so replying doesn't ping it
+                notify_role = inter.guild.get_role(role_id)
+                name = f'**{notify_role.name}**' if notify_role else f'a deleted role ({role_id})'
+            lines.append(f'{label} notifications mention {name}.')
+        await inter.send('\n'.join(lines))
 
     @hubrole.sub_command(name="set")
     async def hubrole_set(
-        self, inter, role: disnake.Role = commands.Param(description="The role to mention in hub notifications")
+        self,
+        inter,
+        role: disnake.Role = commands.Param(description="The role to mention in hub notifications"),
+        event: str = commands.Param("all", choices=EVENT_CHOICES, description="Which notifications mention the role; defaults to both"),
     ):
-        """Mention a role in every hub notification."""
+        """Mention a role in go-live notifications, new video notifications, or both."""
         if not await is_admin(inter):
             return
 
@@ -111,20 +153,34 @@ class HubSettings(commands.Cog):
             await inter.send('Error: @everyone can\'t be used as the notify role.', ephemeral=True)
             return
 
-        self.store.set_hub_notify_role(inter.guild.id, role.id)
-        logger.info(f'hubrole set to {role.id} for server {inter.guild.id}')
+        events = selected_events(event)
+        if await deny_unknown_event(inter, events):
+            return
 
-        reply = f'Hub notifications will mention **{role.name}**.'
+        for e in events:
+            self.store.set_hub_role(inter.guild.id, e, role.id)
+        logger.info(f'hubrole set to {role.id} for {events} in server {inter.guild.id}')
+
+        reply = f'{describe_events(events)} notifications will mention **{role.name}**.'
         if not role.mentionable and not inter.guild.me.guild_permissions.mention_everyone:
             reply += ('\nThis role isn\'t mentionable and the bot doesn\'t have the *Mention @everyone, @here, and All Roles* '
                       'permission, so the mention won\'t notify anyone. Make the role mentionable or give the bot that permission.')
         await inter.send(reply)
 
     @hubrole.sub_command(name="unset")
-    async def hubrole_unset(self, inter):
-        """Stop mentioning a role in hub notifications."""
+    async def hubrole_unset(
+        self,
+        inter,
+        event: str = commands.Param("all", choices=EVENT_CHOICES, description="Which notifications stop mentioning a role; defaults to both"),
+    ):
+        """Stop mentioning a role in go-live notifications, new video notifications, or both."""
         if not await is_admin(inter):
             return
 
-        self.store.set_hub_notify_role(inter.guild.id, None)
-        await inter.send('Notify role removed. Hub notifications will no longer mention a role.')
+        events = selected_events(event)
+        if await deny_unknown_event(inter, events):
+            return
+
+        for e in events:
+            self.store.set_hub_role(inter.guild.id, e, None)
+        await inter.send(f'Notify role removed. {describe_events(events)} notifications will no longer mention a role.')

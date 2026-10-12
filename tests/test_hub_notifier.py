@@ -120,8 +120,12 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("Unknown Message")
         self.edited.append((channel_id, message_id, content, embed))
 
-    def set_hub_channel(self, server_id, channel_id, role_id=None):
-        self.con.execute("REPLACE INTO hubchannels VALUES (?, ?, ?)", (server_id, channel_id, role_id))
+    def set_hub_channel(self, server_id, channel_id, role_id=None, video_role_id=None):
+        """Add a hub channel; role_id is mentioned for both events unless video_role_id is given."""
+        self.con.execute(
+            "REPLACE INTO hubchannels (discord_server, hubchannel, liverole, videorole) VALUES (?, ?, ?, ?)",
+            (server_id, channel_id, role_id, video_role_id or role_id),
+        )
         self.con.commit()
 
     def go_live(self, **overrides):
@@ -432,6 +436,27 @@ class HubNotifierTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(self.edited[0][2].startswith("<@&555> "))
 
+    async def test_live_and_video_posts_mention_their_own_roles(self):
+        self.set_hub_channel(1, 100, role_id=555, video_role_id=666)
+        await self.notifier.poll()
+
+        self.go_live()
+        self.responses[VIDEOS_URL] = videos_response(video("a", title="My video"))
+        await self.notifier.poll()
+
+        self.assertEqual(self.sent[0][1], "<@&555> **Destiny is live!** https://www.destiny.gg/bigscreen")
+        self.assertEqual(self.sent[1][1], "<@&666> **New video:** My video https://www.youtube.com/watch?v=a")
+
+    async def test_event_without_a_role_is_posted_without_a_mention(self):
+        self.con.execute("INSERT INTO hubchannels (discord_server, hubchannel, videorole) VALUES (1, 100, 666)")
+        self.con.commit()
+        await self.notifier.poll()
+
+        self.go_live()
+        await self.notifier.poll()
+
+        self.assertEqual(self.sent[0][1], "**Destiny is live!** https://www.destiny.gg/bigscreen")
+
     # --- failures and channel handling ---
 
     async def test_failed_fetch_leaves_state_alone(self):
@@ -535,12 +560,40 @@ class MessageTest(unittest.TestCase):
 
 
 class HubMigrationTest(unittest.TestCase):
+    def test_notify_role_is_copied_to_both_events(self):
+        fd, db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        try:
+            migrator = Migrator(db_path)
+            migrator.upgrade()
+            migrator.downgrade("005")
+            con = sqlite3.connect(db_path)
+            con.execute("INSERT INTO hubchannels (discord_server, hubchannel, notifyrole) VALUES (1, 100, 555)")
+            con.commit()
+            con.close()
+
+            migrator.upgrade()
+            con = sqlite3.connect(db_path)
+            row = con.execute("SELECT liverole, videorole FROM hubchannels WHERE discord_server=1").fetchone()
+            con.close()
+            self.assertEqual(row, (555, 555))
+        finally:
+            os.remove(db_path)
+
     def test_upgrade_and_downgrade(self):
         fd, db_path = tempfile.mkstemp(suffix=".sqlite")
         os.close(fd)
         try:
             migrator = Migrator(db_path)
             migrator.upgrade()
+
+            migrator.downgrade("005")
+            con = sqlite3.connect(db_path)
+            columns = {row[1] for row in con.execute("PRAGMA table_info(hubchannels)")}
+            con.close()
+            self.assertIn("notifyrole", columns)
+            self.assertNotIn("liverole", columns)
+            self.assertNotIn("videorole", columns)
 
             migrator.downgrade("004")
             con = sqlite3.connect(db_path)

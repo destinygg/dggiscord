@@ -12,6 +12,8 @@ from datetime import datetime
 
 import disnake
 
+from helpers.store import HUB_ROLE_COLUMNS
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {
@@ -170,9 +172,10 @@ class HubNotifier:
     def _set_state(self, key, value):
         self.con.execute("REPLACE INTO hubstate (key, value) VALUES (?, ?)", (key, value))
 
-    def hub_channels(self):
-        """Return (channel_id, notify_role_id) for every hub channel; the role may be None."""
-        return self.con.execute("SELECT hubchannel, notifyrole FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
+    def hub_channels(self, event):
+        """Return (channel_id, role_id) for every hub channel, with the role for event ("live" or "video"), which may be None."""
+        column = HUB_ROLE_COLUMNS[event]
+        return self.con.execute(f"SELECT hubchannel, {column} FROM hubchannels WHERE hubchannel IS NOT NULL").fetchall()
 
     def live_message_id(self, channel_id):
         row = self.con.execute("SELECT message_id FROM hublivemessages WHERE channel_id=?", (channel_id,)).fetchone()
@@ -280,14 +283,14 @@ class HubNotifier:
         videos = _unwrap(await self.fetch_json(self.settings["videos_endpoint"]))
         if isinstance(videos, list):
             for video in self.check_videos(videos):
-                await self.post(*build_video_message(video))
+                await self.post("video", *build_video_message(video))
         else:
             logger.warning("poll() unable to get videos, skipping video check")
 
-    async def post(self, content, embed):
-        """Post a message to every hub channel, returning {channel_id: message_id}."""
+    async def post(self, event, content, embed):
+        """Post a message about event ("live" or "video") to every hub channel, returning {channel_id: message_id}."""
         posted = {}
-        for channel_id, role_id in self.hub_channels():
+        for channel_id, role_id in self.hub_channels(event):
             try:
                 posted[channel_id] = await self.send(channel_id, with_role(content, role_id), embed)
             except Exception as e:
@@ -296,7 +299,7 @@ class HubNotifier:
 
     async def post_live(self, content, embed):
         """Post a go-live announcement and remember each message so it can be edited."""
-        posted = await self.post(content, embed)
+        posted = await self.post("live", content, embed)
         self.con.execute("DELETE FROM hublivemessages")
         self.con.executemany(
             "INSERT INTO hublivemessages (channel_id, message_id) VALUES (?, ?)",
@@ -306,7 +309,7 @@ class HubNotifier:
 
     async def edit_live(self, content, embed):
         """Update the current go-live announcement in every hub channel that has one."""
-        for channel_id, role_id in self.hub_channels():
+        for channel_id, role_id in self.hub_channels("live"):
             message_id = self.live_message_id(channel_id)
             if message_id is None:
                 continue

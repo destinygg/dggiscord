@@ -7,6 +7,8 @@ write commits immediately.
 """
 
 SYNC_COLUMNS = ("sync_subscription", "sync_username")
+# the hubchannels column holding the role mentioned for each hub event
+HUB_ROLE_COLUMNS = {"live": "liverole", "video": "videorole"}
 
 
 class Store:
@@ -81,22 +83,24 @@ class Store:
         return None if row is None else row[0]
 
     def set_hub_channel(self, guild_id, channel_id):
-        """Set or clear (None) the hub channel, keeping the notify role."""
+        """Set or clear (None) the hub channel, keeping the notify roles."""
         self.con.execute("""
             INSERT INTO hubchannels (discord_server, hubchannel) VALUES (?, ?)
             ON CONFLICT(discord_server) DO UPDATE SET hubchannel = excluded.hubchannel
         """, (guild_id, channel_id))
         self.con.commit()
 
-    def hub_notify_role(self, guild_id):
-        """Return the role ID hub posts mention, or None."""
-        row = self.con.execute("SELECT notifyrole FROM hubchannels WHERE discord_server=?", (guild_id,)).fetchone()
+    def hub_role(self, guild_id, event):
+        """Return the role ID hub posts for an event ("live" or "video") mention, or None."""
+        column = HUB_ROLE_COLUMNS[event]
+        row = self.con.execute(f"SELECT {column} FROM hubchannels WHERE discord_server=?", (guild_id,)).fetchone()
         return None if row is None else row[0]
 
-    def set_hub_notify_role(self, guild_id, role_id):
-        """Set or clear (None) the notify role, keeping the hub channel."""
-        self.con.execute("""
-            INSERT INTO hubchannels (discord_server, notifyrole) VALUES (?, ?)
-            ON CONFLICT(discord_server) DO UPDATE SET notifyrole = excluded.notifyrole
+    def set_hub_role(self, guild_id, event, role_id):
+        """Set or clear (None) the role for an event ("live" or "video"), keeping the other settings."""
+        column = HUB_ROLE_COLUMNS[event]
+        self.con.execute(f"""
+            INSERT INTO hubchannels (discord_server, {column}) VALUES (?, ?)
+            ON CONFLICT(discord_server) DO UPDATE SET {column} = excluded.{column}
         """, (guild_id, role_id))
         self.con.commit()
